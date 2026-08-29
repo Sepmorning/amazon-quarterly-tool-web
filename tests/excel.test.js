@@ -47,6 +47,8 @@ function fileFromBytes(name, bytes) {
   return { name, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
 }
 
+const tinyPng = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
+
 const main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const pkgNs = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -87,8 +89,7 @@ test("真实模板可直接分析并生成保留公式和截图的工作簿", { 
   const values = [89147.4, 15050.27, 1082.56, 3.71, 10909.94, 33616.94];
   const result = makeResult("US", "2026Q2", values, -44526.88);
   const session = approvedSession([result]);
-  const image = Uint8Array.from(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
-  const output = await writeWorkbook(source, session, new Map([[result.key, { bytes: image, width: 1, height: 1 }]]));
+  const output = await writeWorkbook(source, session, new Map([[result.key, { bytes: tinyPng, width: 1, height: 1 }]]));
   assert.ok(output.blob.size > 0);
   const zip = await JSZip.loadAsync(await output.blob.arrayBuffer());
   const workbook = domParser.parseFromString(await zip.file("xl/workbook.xml").async("string"));
@@ -108,8 +109,13 @@ test("真实模板可直接分析并生成保留公式和截图的工作簿", { 
 test("无公司工作簿也能导出预览式解析汇总表", async () => {
   const us = makeResult("US", "2026Q2", [120, 10, 2, 1, 8, 42], -50);
   const jp = makeResult("JP", "2026Q2", [1200, 100, 20, 0, 300, 700], -1000);
-  const output = await createSummaryWorkbook(approvedSession([jp, us]));
+  const images = new Map([
+    [jp.key, { bytes: tinyPng, width: 900, height: 1600 }],
+    [us.key, { bytes: tinyPng, width: 900, height: 1600 }],
+  ]);
+  const output = await createSummaryWorkbook(approvedSession([jp, us]), images);
   assert.equal(output.summaryOnly, true);
+  assert.equal(output.imageCount, 2);
   assert.match(output.fileName, /^2026Q2-HY-/);
   const zip = await JSZip.loadAsync(await output.blob.arrayBuffer());
   const sheet = domParser.parseFromString(await zip.file("xl/worksheets/sheet1.xml").async("string"));
@@ -119,6 +125,13 @@ test("无公司工作簿也能导出预览式解析汇总表", async () => {
   assert.equal(cellDisplay(cells.get("C4"), []), "1200");
   assert.equal(cells.get("H4").getElementsByTagNameNS(main, "f")[0].textContent, "ROUND(ABS(-1000)-G4,0)");
   assert.equal(cells.get("H5").getElementsByTagNameNS(main, "f")[0].textContent, "ROUND(ABS(-50)-G5,2)");
+  assert.equal(Array.from(sheet.getElementsByTagNameNS(main, "row")).find((row) => row.getAttribute("r") === "4").getAttribute("ht"), "260");
+  assert.ok(sheet.getElementsByTagNameNS(main, "drawing").length >= 1);
+  assert.equal(Object.keys(zip.files).filter((name) => /^xl\/media\/amazon_report_\d+\.png$/.test(name)).length, 2);
+  const drawingPath = Object.keys(zip.files).find((name) => /^xl\/drawings\/drawing\d+\.xml$/.test(name));
+  const drawing = domParser.parseFromString(await zip.file(drawingPath).async("string"));
+  const columns = Array.from(drawing.getElementsByTagNameNS("http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing", "col")).map((node) => node.textContent);
+  assert.deepEqual(columns, ["8", "8"]);
 });
 
 test("复制季度时会清空所有模板国家旧值，而不只清空本次上传国家", { skip: !samplePath }, async () => {

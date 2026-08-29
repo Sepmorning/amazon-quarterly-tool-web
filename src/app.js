@@ -214,7 +214,7 @@ function previewModal() {
   const rows = state.session.countries.map((country) => `<tr><td><span class="country-code small">${country.metadata.country}</span>${country.metadata.countryName}</td>${TARGET_FIELDS.map((name) => `<td><b>${formatAmount(finalValue(country.fields[name]), country.metadata.currency)}</b><small>${decisionLabel(country.fields[name].decision)}</small></td>`).join("")}</tr>`).join("");
   const targetDescription = state.workbookFile
     ? `目标工作表：${escapeHtml(state.workbookPlan.targetQuarter)} · ${state.workbookPlan.requiresCreation ? `将复制“${escapeHtml(state.workbookPlan.sourceSheet)}”创建新季度，并清空未上传国家的旧值` : "使用现有季度工作表；缺失国家将自动追加"}`
-    : "未上传公司工作簿：将生成与本预览同结构的解析汇总表";
+    : "未上传公司工作簿：将生成与本预览同结构的解析汇总表，并在每个国家右侧嵌入完整报告截图";
   const generateLabel = state.workbookFile ? "确认无误并生成公司工作簿" : "确认无误并下载解析汇总表";
   return `<div class="modal-backdrop" id="previewModal"><div class="preview-modal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
     <header><div><span class="section-number">03</span><div><h2 id="previewTitle">写入前最终确认</h2><p>${state.session.countries[0].metadata.quarter} · ${state.session.countries[0].metadata.store} · ${summary.countries} 个国家 / ${summary.fields} 个字段</p></div></div><button id="closePreview" aria-label="关闭">×</button></header>
@@ -228,7 +228,7 @@ function previewModal() {
 function successView() {
   const summary = reviewSummary(state.session);
   const detail = state.output.summaryOnly
-    ? `已导出 ${summary.countries} 个国家、${summary.fields - summary.SKIP} 个有效字段，表格结构与最终预览一致。`
+    ? `已导出 ${summary.countries} 个国家、${summary.fields - summary.SKIP} 个有效字段，并嵌入 ${state.output.imageCount} 张完整报告截图。`
     : `已写入 ${summary.countries} 个国家、${summary.fields - summary.SKIP} 个字段，并嵌入每个国家的完整报告截图。源工作簿没有被修改。`;
   const target = state.output.summaryOnly
     ? "解析汇总表 · 无需公司模板"
@@ -429,18 +429,18 @@ function bindPreviewEvents() {
 async function generateWorkbook() {
   if (state.busy) return;
   closePreview();
-  setBusy(true, state.workbookFile ? "生成完整报告截图" : "整理解析汇总表", 2);
+  setBusy(true, "生成完整报告截图", 2);
   try {
+    const images = new Map();
+    for (let index = 0; index < state.session.countries.length; index += 1) {
+      const country = state.session.countries[index];
+      setBusy(true, `生成 ${country.metadata.countryName} 完整报告截图`, (index / state.session.countries.length) * 40 + 3);
+      images.set(country.key, await renderFullReport(country));
+    }
     if (state.workbookFile) {
-      const images = new Map();
-      for (let index = 0; index < state.session.countries.length; index += 1) {
-        const country = state.session.countries[index];
-        setBusy(true, `生成 ${country.metadata.countryName} 完整报告截图`, (index / state.session.countries.length) * 40 + 3);
-        images.set(country.key, await renderFullReport(country));
-      }
       state.output = await writeWorkbook(state.workbookFile, state.session, images, (message, value, total) => setBusy(true, message, 45 + (Number(value) / Math.max(Number(total), 1)) * 52));
     } else {
-      state.output = await createSummaryWorkbook(state.session, (message, value, total) => setBusy(true, message, 10 + (Number(value) / Math.max(Number(total), 1)) * 87));
+      state.output = await createSummaryWorkbook(state.session, images, (message, value, total) => setBusy(true, message, 45 + (Number(value) / Math.max(Number(total), 1)) * 52));
     }
     downloadOutput();
     toast("Excel 已生成并开始下载", "success");

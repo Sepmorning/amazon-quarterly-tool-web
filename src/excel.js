@@ -361,8 +361,9 @@ function appendDrawingReference(sheet, relationshipId) {
   else sheet.documentElement.appendChild(node);
 }
 
-async function addDrawings(zip, sheetPath, sheet, images) {
+async function addDrawings(zip, sheetPath, sheet, images, layout = {}) {
   if (!images.length) return;
+  const { anchorColumn = 10, maxWidth = 104, maxHeight = 70, offsetX = 4, offsetY = 1 } = layout;
   const drawingNames = Object.keys(zip.files).filter((name) => /^xl\/drawings\/drawing\d+\.xml$/.test(name)).map((name) => name.split("/").pop());
   const drawingName = nextNumericName(drawingNames, "drawing", ".xml");
   const drawingPath = `xl/drawings/${drawingName}`;
@@ -392,12 +393,12 @@ async function addDrawings(zip, sheetPath, sheet, images) {
     zip.file(`xl/media/${mediaName}`, image.bytes);
     const imageRid = `rId${imageIndex}`;
     drawingRels.documentElement.appendChild(create(drawingRels, PKG_REL_NS, "Relationship", { Id: imageRid, Type: IMAGE_REL_TYPE, Target: `../media/${mediaName}` }));
-    const scale = Math.min(104 / Math.max(image.width, 1), 70 / Math.max(image.height, 1));
+    const scale = Math.min(maxWidth / Math.max(image.width, 1), maxHeight / Math.max(image.height, 1));
     const displayWidth = Math.max(1, Math.round(image.width * scale));
     const displayHeight = Math.max(1, Math.round(image.height * scale));
     const anchor = create(drawing, XDR_NS, "xdr:oneCellAnchor");
     const origin = create(drawing, XDR_NS, "xdr:from");
-    for (const [name, value] of [["col", 10], ["colOff", 4 * 9525], ["row", image.row - 1], ["rowOff", 9525]]) {
+    for (const [name, value] of [["col", anchorColumn], ["colOff", offsetX * 9525], ["row", image.row - 1], ["rowOff", offsetY * 9525]]) {
       const node = create(drawing, XDR_NS, `xdr:${name}`);
       node.appendChild(drawing.createTextNode(String(value)));
       origin.appendChild(node);
@@ -550,14 +551,14 @@ function summaryCell(reference, value, style = 0) {
   return `<c r="${reference}" s="${style}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
 }
 
-export async function createSummaryWorkbook(session, onProgress = () => {}) {
+export async function createSummaryWorkbook(session, reportImages = new Map(), onProgress = () => {}) {
   validateSession(session);
   const quarters = new Set(session.countries.map((item) => item.metadata.quarter));
   const stores = new Set(session.countries.map((item) => item.metadata.store));
   if (quarters.size !== 1 || stores.size !== 1) throw new Error("一次只能导出同一季度、同一店铺的数据");
   const quarter = [...quarters][0];
   const store = [...stores][0];
-  const headers = ["国家", "币种", "收入", "退款", "佣金返款", "运费返款", "广告", "佣金服务费"];
+  const headers = ["国家", "币种", "收入", "退款", "佣金返款", "运费返款", "广告", "佣金服务费", "完整报告截图"];
   const rows = session.countries.map((country, index) => {
     onProgress(`整理 ${country.metadata.countryName}`, index + 1, session.countries.length);
     const rowNumber = index + 4;
@@ -571,24 +572,31 @@ export async function createSummaryWorkbook(session, onProgress = () => {}) {
       summaryCell(`A${rowNumber}`, `${country.metadata.countryName} (${country.metadata.country})`, 3),
       summaryCell(`B${rowNumber}`, country.metadata.currency, 3),
       ...values.map((value, fieldIndex) => summaryCell(`${columnName(fieldIndex + 3)}${rowNumber}`, value, country.metadata.currency === "JPY" ? 5 : 4)),
+      summaryCell(`I${rowNumber}`, reportImages.has(country.key) ? "" : "截图缺失", 3),
     ];
-    return `<row r="${rowNumber}" ht="22" customHeight="1">${cells.join("")}</row>`;
+    return `<row r="${rowNumber}" ht="${reportImages.has(country.key) ? 260 : 22}" customHeight="1">${cells.join("")}</row>`;
   }).join("");
   const lastRow = session.countries.length + 3;
   const generatedAt = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date());
-  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${MAIN_NS}"><dimension ref="A1:H${lastRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols><col min="1" max="1" width="20" customWidth="1"/><col min="2" max="2" width="11" customWidth="1"/><col min="3" max="8" width="18" customWidth="1"/></cols><sheetData><row r="1" ht="34" customHeight="1">${summaryCell("A1", "Amazon 季度交易数据解析汇总", 1)}</row><row r="2" ht="24" customHeight="1">${summaryCell("A2", `${quarter} · 店铺 ${store} · ${session.countries.length} 个国家 · 生成于 ${generatedAt}`, 2)}</row><row r="3" ht="26" customHeight="1">${headers.map((header, index) => summaryCell(`${columnName(index + 1)}3`, header, 2)).join("")}</row>${rows}</sheetData><autoFilter ref="A3:H${lastRow}"/><mergeCells count="2"><mergeCell ref="A1:H1"/><mergeCell ref="A2:H2"/></mergeCells><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`;
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${MAIN_NS}" xmlns:r="${DOC_REL_NS}"><dimension ref="A1:I${lastRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols><col min="1" max="1" width="20" customWidth="1"/><col min="2" max="2" width="11" customWidth="1"/><col min="3" max="8" width="18" customWidth="1"/><col min="9" max="9" width="62" customWidth="1"/></cols><sheetData><row r="1" ht="34" customHeight="1">${summaryCell("A1", "Amazon 季度交易数据解析汇总", 1)}</row><row r="2" ht="24" customHeight="1">${summaryCell("A2", `${quarter} · 店铺 ${store} · ${session.countries.length} 个国家 · 生成于 ${generatedAt}`, 2)}</row><row r="3" ht="26" customHeight="1">${headers.map((header, index) => summaryCell(`${columnName(index + 1)}3`, header, 2)).join("")}</row>${rows}</sheetData><autoFilter ref="A3:I${lastRow}"/><mergeCells count="2"><mergeCell ref="A1:I1"/><mergeCell ref="A2:I2"/></mergeCells><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`;
   const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="${MAIN_NS}"><fonts count="4"><font><sz val="11"/><name val="Microsoft YaHei"/></font><font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Microsoft YaHei"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Microsoft YaHei"/></font><font><b/><sz val="11"/><color rgb="FF172033"/><name val="Microsoft YaHei"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1D4ED8"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFF6FF"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD6DFEA"/></left><right style="thin"><color rgb="FFD6DFEA"/></right><top style="thin"><color rgb="FFD6DFEA"/></top><bottom style="thin"><color rgb="FFD6DFEA"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="4" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   const zip = new JSZip();
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
   zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="${DOC_REL_NS}/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${DOC_REL_NS}/extended-properties" Target="docProps/app.xml"/></Relationships>`);
   zip.file("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="${MAIN_NS}" xmlns:r="${DOC_REL_NS}"><sheets><sheet name="解析汇总" sheetId="1" r:id="rId1"/></sheets><calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`);
   zip.file("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="${SHEET_REL_TYPE}" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${DOC_REL_NS}/styles" Target="styles.xml"/></Relationships>`);
-  zip.file("xl/worksheets/sheet1.xml", sheet);
+  const sheetDocument = xml(sheet);
+  const images = session.countries.flatMap((country, index) => {
+    const image = reportImages.get(country.key);
+    return image ? [{ row: index + 4, ...image, alt: `Amazon ${country.metadata.quarter} ${country.metadata.countryName} 完整报告截图` }] : [];
+  });
+  await addDrawings(zip, "xl/worksheets/sheet1.xml", sheetDocument, images, { anchorColumn: 8, maxWidth: 430, maxHeight: 330, offsetX: 6, offsetY: 6 });
+  zip.file("xl/worksheets/sheet1.xml", xmlText(sheetDocument));
   zip.file("xl/styles.xml", styles);
   zip.file("docProps/core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Amazon 季度交易数据解析汇总</dc:title><dc:creator>Amazon 季度数据工具</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created></cp:coreProperties>`);
   zip.file("docProps/app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Amazon 季度数据工具</Application></Properties>`);
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 }, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, ({ percent }) => onProgress(`打包汇总表 ${Math.round(percent)}%`, percent, 100));
-  return { blob, fileName: `${quarter}-${store}-Amazon季度解析汇总.xlsx`, targetSheet: "解析汇总", sourceSheet: null, createdSheet: true, summaryOnly: true, statuses: Object.fromEntries(session.countries.map((country) => [country.key, "SUMMARY_WRITTEN"])) };
+  return { blob, fileName: `${quarter}-${store}-Amazon季度解析汇总.xlsx`, targetSheet: "解析汇总", sourceSheet: null, createdSheet: true, summaryOnly: true, imageCount: images.length, statuses: Object.fromEntries(session.countries.map((country) => [country.key, reportImages.has(country.key) ? "SUMMARY_WITH_IMAGE_WRITTEN" : "SUMMARY_IMAGE_MISSING"])) };
 }
 
 export const OOXML_NAMESPACES = Object.freeze({ MAIN_NS, DOC_REL_NS, PKG_REL_NS, XDR_NS });
