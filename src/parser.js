@@ -285,7 +285,7 @@ export async function extractPdf(file, onProgress = () => {}) {
   const { getDocument, GlobalWorkerOptions } = typeof window === "undefined"
     ? await import("pdfjs-dist/legacy/build/pdf.mjs")
     : await import("pdfjs-dist");
-  if (typeof window !== "undefined" && !GlobalWorkerOptions.workerSrc) {
+  if (typeof window !== "undefined") {
     const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
     GlobalWorkerOptions.workerSrc = workerModule.default;
   }
