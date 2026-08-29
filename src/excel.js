@@ -266,6 +266,16 @@ function writeNumber(cell, value) {
   cell.appendChild(node);
 }
 
+function writeInlineString(cell, value) {
+  clearCell(cell);
+  cell.setAttribute("t", "inlineStr");
+  const inline = create(cell.ownerDocument, MAIN_NS, "is");
+  const text = create(cell.ownerDocument, MAIN_NS, "t");
+  text.appendChild(cell.ownerDocument.createTextNode(String(value ?? "")));
+  inline.appendChild(text);
+  cell.appendChild(inline);
+}
+
 function writeFormula(cell, formula, cached) {
   clearCell(cell);
   const formulaNode = create(cell.ownerDocument, MAIN_NS, "f");
@@ -289,6 +299,58 @@ function setFormulaCache(cell, value) {
   }
   while (cached.firstChild) cached.removeChild(cached.firstChild);
   cached.appendChild(cell.ownerDocument.createTextNode(numberText(value)));
+}
+
+function updateDimension(sheet, rowNumber) {
+  const dimension = firstDirect(sheet.documentElement, MAIN_NS, "dimension");
+  if (!dimension) return;
+  const reference = dimension.getAttribute("ref") || "A1";
+  const [start, end = start] = reference.split(":");
+  const endColumn = end.match(/^[A-Z]+/i)?.[0] || "R";
+  const endRow = Number(end.match(/\d+$/)?.[0] || 1);
+  if (rowNumber > endRow) dimension.setAttribute("ref", `${start}:${endColumn}${rowNumber}`);
+}
+
+function appendCountryRow(sheet, rows, code) {
+  const config = COUNTRIES[code];
+  const sheetData = elements(sheet, MAIN_NS, "sheetData")[0];
+  if (!sheetData) throw new Error("目标工作表缺少 sheetData");
+  const existingRows = directChildren(sheetData, MAIN_NS, "row");
+  const rowNumber = Math.max(0, ...existingRows.map((row) => Number(row.getAttribute("r") || 0))) + 1;
+  const recognizedRows = rows.flatMap((row) => Object.keys(COUNTRIES).some((countryCode) => {
+    try { return findCountryRow([row], countryCode) === row.row; } catch { return false; }
+  }) ? [row.row] : []);
+  const sourceNumber = recognizedRows.sort((left, right) => right - left)[0];
+  const sourceRow = sourceNumber == null ? null : existingRows.find((row) => Number(row.getAttribute("r")) === sourceNumber);
+  const row = sourceRow ? sourceRow.cloneNode(true) : create(sheet, MAIN_NS, "row");
+  row.setAttribute("r", String(rowNumber));
+  for (const cell of directChildren(row, MAIN_NS, "c")) {
+    const column = columnNumber(cell.getAttribute("r"));
+    cell.setAttribute("r", `${columnName(column)}${rowNumber}`);
+    clearCell(cell);
+  }
+  sheetData.appendChild(row);
+  writeInlineString(findOrCreateCell(sheet, rowNumber, 2), config.marketplaces[0]);
+  writeInlineString(findOrCreateCell(sheet, rowNumber, 3), config.displayName);
+  writeInlineString(findOrCreateCell(sheet, rowNumber, 4), config.currency);
+  updateDimension(sheet, rowNumber);
+  rows.push({ row: rowNumber, marketplace: config.marketplaces[0], countryName: config.displayName, currency: config.currency });
+  return rowNumber;
+}
+
+function clearCopiedQuarterRows(sheet, rows) {
+  const countryRows = new Set(Object.keys(COUNTRIES).flatMap((code) => {
+    const row = findCountryRow(rows, code);
+    return row == null ? [] : [row];
+  }));
+  for (const row of countryRows) {
+    for (let column = 5; column <= 11; column += 1) clearCell(findOrCreateCell(sheet, row, column));
+    for (let column = 13; column <= 18; column += 1) {
+      const cell = findOrCreateCell(sheet, row, column);
+      if (firstDirect(cell, MAIN_NS, "f")) setFormulaCache(cell, 0);
+      else clearCell(cell);
+    }
+  }
 }
 
 function appendDrawingReference(sheet, relationshipId) {
@@ -401,16 +463,17 @@ export async function writeWorkbook(sourceFile, session, reportImages, onProgres
   const target = await targetSheet(zip, workbook, rels, plan);
   const shared = await sharedStrings(zip);
   const rows = sheetRows(target.sheet, shared);
+  if (target.created) clearCopiedQuarterRows(target.sheet, rows);
   const rowByKey = new Map();
   const statuses = {};
+  const appended = new Set();
   for (const country of session.countries) {
-    const row = findCountryRow(rows, country.metadata.country);
-    if (row == null) statuses[country.key] = "ROW_NOT_FOUND";
-    else rowByKey.set(country.key, row);
-  }
-  if (!rowByKey.size) throw new Error("没有任何国家成功匹配到工作簿行");
-  if (target.created) {
-    for (const row of new Set(rowByKey.values())) for (let column = 5; column <= 11; column += 1) clearCell(findOrCreateCell(target.sheet, row, column));
+    let row = findCountryRow(rows, country.metadata.country);
+    if (row == null) {
+      row = appendCountryRow(target.sheet, rows, country.metadata.country);
+      appended.add(country.key);
+    }
+    rowByKey.set(country.key, row);
   }
   const images = [];
   let index = 0;
@@ -453,8 +516,8 @@ export async function writeWorkbook(sourceFile, session, reportImages, onProgres
     const image = reportImages.get(country.key);
     if (image) {
       images.push({ row, ...image, alt: `Amazon ${country.metadata.quarter} ${country.metadata.countryName} 完整报告截图` });
-      statuses[country.key] = skipped ? "WRITTEN_WITH_SKIPS" : "WRITTEN";
-    } else statuses[country.key] = "DATA_WRITTEN_IMAGE_MISSING";
+      statuses[country.key] = `${appended.has(country.key) ? "APPENDED_" : ""}${skipped ? "WRITTEN_WITH_SKIPS" : "WRITTEN"}`;
+    } else statuses[country.key] = `${appended.has(country.key) ? "APPENDED_" : ""}DATA_WRITTEN_IMAGE_MISSING`;
   }
   for (const row of new Set(rowByKey.values())) clearCell(findOrCreateCell(target.sheet, row, 11));
   await addDrawings(zip, target.path, target.sheet, images);
@@ -474,6 +537,58 @@ export async function writeWorkbook(sourceFile, session, reportImages, onProgres
   const extension = sourceFile.name.match(/\.(xlsx|xlsm)$/i)?.[0] || ".xlsx";
   const stem = sourceFile.name.slice(0, -extension.length);
   return { blob, fileName: `${stem}_${quarter}_自动填充${extension}`, targetSheet: quarter, sourceSheet: plan.sourceSheet, createdSheet: plan.requiresCreation, statuses };
+}
+
+function escapeXml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]);
+}
+
+function summaryCell(reference, value, style = 0) {
+  if (value == null) return `<c r="${reference}" s="${style}"/>`;
+  if (typeof value === "object" && value.formula) return `<c r="${reference}" s="${style}"><f>${escapeXml(value.formula)}</f><v>${numberText(value.cached)}</v></c>`;
+  if (typeof value === "number") return `<c r="${reference}" s="${style}"><v>${numberText(value)}</v></c>`;
+  return `<c r="${reference}" s="${style}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+}
+
+export async function createSummaryWorkbook(session, onProgress = () => {}) {
+  validateSession(session);
+  const quarters = new Set(session.countries.map((item) => item.metadata.quarter));
+  const stores = new Set(session.countries.map((item) => item.metadata.store));
+  if (quarters.size !== 1 || stores.size !== 1) throw new Error("一次只能导出同一季度、同一店铺的数据");
+  const quarter = [...quarters][0];
+  const store = [...stores][0];
+  const headers = ["国家", "币种", "收入", "退款", "佣金返款", "运费返款", "广告", "佣金服务费"];
+  const rows = session.countries.map((country, index) => {
+    onProgress(`整理 ${country.metadata.countryName}`, index + 1, session.countries.length);
+    const rowNumber = index + 4;
+    const values = TARGET_FIELDS.map((name) => finalValue(country.fields[name]));
+    const commission = country.fields.commission_service_fee;
+    if (commission.decision === DECISIONS.APPROVED && country.expensesSubtotalDebits != null && values[4] != null && values[5] != null) {
+      const decimals = country.metadata.currency === "JPY" ? 0 : 2;
+      values[5] = { formula: `ROUND(ABS(${numberText(country.expensesSubtotalDebits)})-G${rowNumber},${decimals})`, cached: finalValue(commission) };
+    }
+    const cells = [
+      summaryCell(`A${rowNumber}`, `${country.metadata.countryName} (${country.metadata.country})`, 3),
+      summaryCell(`B${rowNumber}`, country.metadata.currency, 3),
+      ...values.map((value, fieldIndex) => summaryCell(`${columnName(fieldIndex + 3)}${rowNumber}`, value, country.metadata.currency === "JPY" ? 5 : 4)),
+    ];
+    return `<row r="${rowNumber}" ht="22" customHeight="1">${cells.join("")}</row>`;
+  }).join("");
+  const lastRow = session.countries.length + 3;
+  const generatedAt = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date());
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${MAIN_NS}"><dimension ref="A1:H${lastRow}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols><col min="1" max="1" width="20" customWidth="1"/><col min="2" max="2" width="11" customWidth="1"/><col min="3" max="8" width="18" customWidth="1"/></cols><sheetData><row r="1" ht="34" customHeight="1">${summaryCell("A1", "Amazon 季度交易数据解析汇总", 1)}</row><row r="2" ht="24" customHeight="1">${summaryCell("A2", `${quarter} · 店铺 ${store} · ${session.countries.length} 个国家 · 生成于 ${generatedAt}`, 2)}</row><row r="3" ht="26" customHeight="1">${headers.map((header, index) => summaryCell(`${columnName(index + 1)}3`, header, 2)).join("")}</row>${rows}</sheetData><autoFilter ref="A3:H${lastRow}"/><mergeCells count="2"><mergeCell ref="A1:H1"/><mergeCell ref="A2:H2"/></mergeCells><pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="${MAIN_NS}"><fonts count="4"><font><sz val="11"/><name val="Microsoft YaHei"/></font><font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Microsoft YaHei"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Microsoft YaHei"/></font><font><b/><sz val="11"/><color rgb="FF172033"/><name val="Microsoft YaHei"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1D4ED8"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFF6FF"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD6DFEA"/></left><right style="thin"><color rgb="FFD6DFEA"/></right><top style="thin"><color rgb="FFD6DFEA"/></top><bottom style="thin"><color rgb="FFD6DFEA"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="4" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="${CT_NS}"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
+  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="${DOC_REL_NS}/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="${DOC_REL_NS}/extended-properties" Target="docProps/app.xml"/></Relationships>`);
+  zip.file("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="${MAIN_NS}" xmlns:r="${DOC_REL_NS}"><sheets><sheet name="解析汇总" sheetId="1" r:id="rId1"/></sheets><calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`);
+  zip.file("xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${PKG_REL_NS}"><Relationship Id="rId1" Type="${SHEET_REL_TYPE}" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${DOC_REL_NS}/styles" Target="styles.xml"/></Relationships>`);
+  zip.file("xl/worksheets/sheet1.xml", sheet);
+  zip.file("xl/styles.xml", styles);
+  zip.file("docProps/core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Amazon 季度交易数据解析汇总</dc:title><dc:creator>Amazon 季度数据工具</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created></cp:coreProperties>`);
+  zip.file("docProps/app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Amazon 季度数据工具</Application></Properties>`);
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 }, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, ({ percent }) => onProgress(`打包汇总表 ${Math.round(percent)}%`, percent, 100));
+  return { blob, fileName: `${quarter}-${store}-Amazon季度解析汇总.xlsx`, targetSheet: "解析汇总", sourceSheet: null, createdSheet: true, summaryOnly: true, statuses: Object.fromEntries(session.countries.map((country) => [country.key, "SUMMARY_WRITTEN"])) };
 }
 
 export const OOXML_NAMESPACES = Object.freeze({ MAIN_NS, DOC_REL_NS, PKG_REL_NS, XDR_NS });

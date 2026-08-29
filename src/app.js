@@ -1,6 +1,6 @@
 import "./style.css";
 import { FIELD_LABELS, TARGET_FIELDS } from "./config.js";
-import { analyzeWorkbook, writeWorkbook } from "./excel.js";
+import { analyzeWorkbook, createSummaryWorkbook, writeWorkbook } from "./excel.js";
 import { extractPdf, renderEvidence, renderFullReport } from "./parser.js";
 import {
   DECISIONS,
@@ -38,11 +38,9 @@ const icon = (name, className = "") => {
     sheet: '<rect width="18" height="20" x="3" y="2" rx="2"/><path d="M3 8h18M9 8v14M15 8v14M3 14h18"/>',
     arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
-    upload: '<path d="M12 16V4m-5 5 5-5 5 5M5 20h14"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
     lock: '<rect width="16" height="12" x="4" y="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
     download: '<path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/>',
-    spark: '<path d="m12 3-1.4 3.6L7 8l3.6 1.4L12 13l1.4-3.6L17 8l-3.6-1.4L12 3ZM5 14l-.8 2.2L2 17l2.2.8L5 20l.8-2.2L8 17l-2.2-.8L5 14Zm14-1-.8 2.2L16 16l2.2.8L19 19l.8-2.2L22 16l-2.2-.8L19 13Z"/>',
     rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
     keyboard: '<rect width="20" height="14" x="2" y="5" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M7 13h10"/>',
   };
@@ -95,32 +93,31 @@ function toast(message, type = "info") {
 
 function shell(content, step = 1) {
   return `
-    <div class="aurora aurora-one"></div><div class="aurora aurora-two"></div>
     <header class="topbar">
-      <a class="brand" href="./" aria-label="返回首页"><span class="brand-mark">${icon("spark")}</span><span><b>Quarterly Flow</b><small>Amazon 交易数据核验台</small></span></a>
+      <a class="brand" href="./" aria-label="返回首页"><span class="brand-mark">${icon("sheet")}</span><span><b>Amazon 季度数据工具</b><small>提取、审核与工作簿生成</small></span></a>
       <div class="privacy-pill">${icon("lock")}<span>本地处理 · 不上传文件</span></div>
     </header>
     <main class="page-shell">
       <section class="hero">
-        <div><span class="eyebrow">LOCAL-FIRST · NO OFFICE REQUIRED</span><h1>从报告到工作簿，<em>一次核对完成。</em></h1><p>拖入 Amazon 季度 PDF 与公司工作簿，在浏览器中提取、逐项确认并生成带公式和完整截图的 Excel。</p></div>
+        <div><span class="eyebrow">AMAZON QUARTERLY REVIEW</span><h1>季度交易数据核验与导出</h1><p>上传 Amazon 季度 PDF 后逐项核对。公司工作簿可选：上传时按国家写入，不上传时直接导出清晰的解析汇总表。</p></div>
         <div class="flow-steps" aria-label="处理步骤">
           ${[[1,"准备文件"],[2,"顺序审核"],[3,"确认生成"]].map(([number,label]) => `<div class="flow-step ${step === number ? "active" : ""} ${step > number ? "done" : ""}"><span>${step > number ? icon("check") : number}</span><b>${label}</b></div>`).join("")}
         </div>
       </section>
       ${content}
     </main>
-    <footer><span>纯浏览器运行，不要求安装 Microsoft Excel 或 WPS</span><a href="https://github.com/Sepmorning/amazon-quarterly-tool-web" target="_blank" rel="noreferrer">查看源代码 ↗</a></footer>
+    <footer><span>纯浏览器运行，不要求安装 Microsoft Excel 或 WPS</span><span class="footer-links"><a href="./local.html" download>下载离线版</a><a href="https://github.com/Sepmorning/amazon-quarterly-tool-web" target="_blank" rel="noreferrer">查看源代码 ↗</a></span></footer>
     <div id="toastRoot" class="toast-root"></div>`;
 }
 
 function inputView() {
   const pdfText = state.pdfFiles.length ? `已选择 ${state.pdfFiles.length} 份 PDF` : "拖入整个 PDF 文件夹";
   const pdfHint = state.pdfFiles.length ? state.pdfFiles.map((file) => file.name).join(" · ") : "也可以点击选择文件夹；会自动忽略非 PDF 文件";
-  const excelText = state.workbookFile ? state.workbookFile.name : "拖入公司正式工作簿";
-  const excelHint = state.workbookFile ? `${(state.workbookFile.size / 1024 / 1024).toFixed(2)} MB · 原文件不会被修改` : "支持 .xlsx / .xlsm，不依赖 Excel 或 WPS";
+  const excelText = state.workbookFile ? state.workbookFile.name : "公司工作簿（可选）";
+  const excelHint = state.workbookFile ? `${(state.workbookFile.size / 1024 / 1024).toFixed(2)} MB · 原文件不会被修改` : "不上传也能使用，将生成直观的解析汇总表";
   return shell(`
     <section class="workspace-card input-card">
-      <div class="section-heading"><div><span class="section-number">01</span><h2>准备本季度文件</h2><p>两类文件就绪后，即可开始本地解析。</p></div><div class="privacy-note">${icon("shield")}<span><b>隐私保护</b><small>PDF 和工作簿不会离开浏览器</small></span></div></div>
+      <div class="section-heading"><div><span class="section-number">01</span><h2>准备本季度文件</h2><p>PDF 为必选，公司工作簿可按需要上传。</p></div><div class="privacy-note">${icon("shield")}<span><b>文件仅在本机处理</b><small>不会上传到服务器</small></span></div></div>
       <div class="drop-grid">
         <div class="drop-zone ${state.pdfFiles.length ? "has-file" : ""}" id="pdfDrop" tabindex="0" role="button">
           <input id="pdfInput" type="file" accept="application/pdf,.pdf" multiple webkitdirectory hidden />
@@ -133,13 +130,13 @@ function inputView() {
       </div>
       <div class="input-footer">
         <div class="requirements"><span class="dot"></span><span>文件名格式：<b>2026Q2-HY-US-…pdf</b></span><span class="divider"></span><span>支持 US / CA / MX / BR / JP / DE / UK</span></div>
-        <button id="startButton" class="primary-button" ${!state.pdfFiles.length || !state.workbookFile ? "disabled" : ""}>解析并生成审核证据 ${icon("arrow")}</button>
+        <button id="startButton" class="primary-button" ${!state.pdfFiles.length ? "disabled" : ""}>解析并开始审核 ${icon("arrow")}</button>
       </div>
     </section>
     <section class="feature-strip">
       <article>${icon("eye")}<div><b>原始证据在上</b><span>截图与操作始终同屏</span></div></article>
       <article>${icon("keyboard")}<div><b>键盘顺序审核</b><span>Enter 确认后自动前进</span></div></article>
-      <article>${icon("sheet")}<div><b>保留模板结构</b><span>公式与完整报告截图写入</span></div></article>
+      <article>${icon("sheet")}<div><b>两种导出方式</b><span>写入公司模板，或直接下载汇总表</span></div></article>
     </section>`, 1);
 }
 
@@ -215,18 +212,28 @@ function reviewView() {
 function previewModal() {
   const summary = reviewSummary(state.session);
   const rows = state.session.countries.map((country) => `<tr><td><span class="country-code small">${country.metadata.country}</span>${country.metadata.countryName}</td>${TARGET_FIELDS.map((name) => `<td><b>${formatAmount(finalValue(country.fields[name]), country.metadata.currency)}</b><small>${decisionLabel(country.fields[name].decision)}</small></td>`).join("")}</tr>`).join("");
+  const targetDescription = state.workbookFile
+    ? `目标工作表：${escapeHtml(state.workbookPlan.targetQuarter)} · ${state.workbookPlan.requiresCreation ? `将复制“${escapeHtml(state.workbookPlan.sourceSheet)}”创建新季度，并清空未上传国家的旧值` : "使用现有季度工作表；缺失国家将自动追加"}`
+    : "未上传公司工作簿：将生成与本预览同结构的解析汇总表";
+  const generateLabel = state.workbookFile ? "确认无误并生成公司工作簿" : "确认无误并下载解析汇总表";
   return `<div class="modal-backdrop" id="previewModal"><div class="preview-modal" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
     <header><div><span class="section-number">03</span><div><h2 id="previewTitle">写入前最终确认</h2><p>${state.session.countries[0].metadata.quarter} · ${state.session.countries[0].metadata.store} · ${summary.countries} 个国家 / ${summary.fields} 个字段</p></div></div><button id="closePreview" aria-label="关闭">×</button></header>
-    <div class="preview-alert">${icon("shield")}<div><b>这是生成 Excel 前的必须确认</b><span>目标工作表：${escapeHtml(state.workbookPlan.targetQuarter)} · ${state.workbookPlan.requiresCreation ? `将复制“${escapeHtml(state.workbookPlan.sourceSheet)}”创建新季度` : "使用现有季度工作表"}</span></div></div>
+    <div class="preview-alert">${icon("shield")}<div><b>这是下载 Excel 前的最终确认</b><span>${targetDescription}</span></div></div>
     <div class="table-scroll"><table><thead><tr><th>国家</th>${TARGET_FIELDS.map((name) => `<th>${FIELD_LABELS[name]}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
     <div class="preview-stats"><span><b>${summary.APPROVED}</b>提取值</span><span><b>${summary.MANUAL}</b>人工值</span><span><b>${summary.CONFIRMED_ZERO}</b>确认零</span><span><b>${summary.SKIP}</b>跳过</span></div>
-    <footer><button id="backToReview" class="secondary-button">返回修改</button><button id="generateButton" class="primary-button">${icon("download")}确认无误并生成 Excel</button></footer>
+    <footer><button id="backToReview" class="secondary-button">返回修改</button><button id="generateButton" class="primary-button">${icon("download")}${generateLabel}</button></footer>
   </div></div>`;
 }
 
 function successView() {
   const summary = reviewSummary(state.session);
-  return shell(`<section class="success-card"><span class="success-mark">${icon("check")}</span><span class="eyebrow">WORKBOOK READY</span><h2>工作簿已在浏览器中生成</h2><p>已写入 ${summary.countries} 个国家、${summary.fields - summary.SKIP} 个字段，并嵌入每个国家的完整报告截图。源工作簿没有被修改。</p><div class="output-file">${icon("sheet")}<div><b>${escapeHtml(state.output.fileName)}</b><span>目标工作表 ${state.output.targetSheet} · ${state.output.createdSheet ? `由 ${state.output.sourceSheet} 复制创建` : "使用现有工作表"}</span></div><button id="downloadAgain">${icon("download")}再次下载</button></div><div class="success-actions"><button id="newBatch" class="secondary-button">处理另一批文件</button><button id="auditDownload" class="ghost-button">下载审核记录 JSON</button></div></section>`, 3);
+  const detail = state.output.summaryOnly
+    ? `已导出 ${summary.countries} 个国家、${summary.fields - summary.SKIP} 个有效字段，表格结构与最终预览一致。`
+    : `已写入 ${summary.countries} 个国家、${summary.fields - summary.SKIP} 个字段，并嵌入每个国家的完整报告截图。源工作簿没有被修改。`;
+  const target = state.output.summaryOnly
+    ? "解析汇总表 · 无需公司模板"
+    : `目标工作表 ${state.output.targetSheet} · ${state.output.createdSheet ? `由 ${state.output.sourceSheet} 复制创建` : "使用现有工作表"}`;
+  return shell(`<section class="success-card"><span class="success-mark">${icon("check")}</span><span class="eyebrow">EXPORT READY</span><h2>Excel 已在浏览器中生成</h2><p>${detail}</p><div class="output-file">${icon("sheet")}<div><b>${escapeHtml(state.output.fileName)}</b><span>${target}</span></div><button id="downloadAgain">${icon("download")}再次下载</button></div><div class="success-actions"><button id="newBatch" class="secondary-button">处理另一批文件</button><button id="auditDownload" class="ghost-button">下载审核记录 JSON</button></div></section>`, 3);
 }
 
 function render() {
@@ -304,7 +311,7 @@ function bindEvents() {
 }
 
 async function startExtraction() {
-  if (!state.pdfFiles.length || !state.workbookFile || state.busy) return;
+  if (!state.pdfFiles.length || state.busy) return;
   setBusy(true, "准备解析文件", 3);
   const results = [];
   const failures = [];
@@ -325,8 +332,12 @@ async function startExtraction() {
     if (quarters.size !== 1 || stores.size !== 1) throw new Error("一次处理的 PDF 必须属于同一个季度和店铺");
     const codes = results.map((item) => item.metadata.country);
     if (new Set(codes).size !== codes.length) throw new Error("同一批文件中存在重复国家");
-    setBusy(true, "检查工作簿结构", 90);
-    state.workbookPlan = await analyzeWorkbook(state.workbookFile, [...quarters][0]);
+    if (state.workbookFile) {
+      setBusy(true, "检查工作簿结构", 90);
+      state.workbookPlan = await analyzeWorkbook(state.workbookFile, [...quarters][0]);
+    } else {
+      state.workbookPlan = { targetQuarter: [...quarters][0], requiresCreation: true, sourceSheet: null, summaryOnly: true };
+    }
     state.session = createReviewSession(results, failures);
     state.cursor = firstUnresolved(state.session);
     toast(`解析完成：成功 ${results.length}，失败 ${failures.length}`, failures.length ? "warning" : "success");
@@ -418,15 +429,19 @@ function bindPreviewEvents() {
 async function generateWorkbook() {
   if (state.busy) return;
   closePreview();
-  setBusy(true, "生成完整报告截图", 2);
+  setBusy(true, state.workbookFile ? "生成完整报告截图" : "整理解析汇总表", 2);
   try {
-    const images = new Map();
-    for (let index = 0; index < state.session.countries.length; index += 1) {
-      const country = state.session.countries[index];
-      setBusy(true, `生成 ${country.metadata.countryName} 完整报告截图`, (index / state.session.countries.length) * 40 + 3);
-      images.set(country.key, await renderFullReport(country));
+    if (state.workbookFile) {
+      const images = new Map();
+      for (let index = 0; index < state.session.countries.length; index += 1) {
+        const country = state.session.countries[index];
+        setBusy(true, `生成 ${country.metadata.countryName} 完整报告截图`, (index / state.session.countries.length) * 40 + 3);
+        images.set(country.key, await renderFullReport(country));
+      }
+      state.output = await writeWorkbook(state.workbookFile, state.session, images, (message, value, total) => setBusy(true, message, 45 + (Number(value) / Math.max(Number(total), 1)) * 52));
+    } else {
+      state.output = await createSummaryWorkbook(state.session, (message, value, total) => setBusy(true, message, 10 + (Number(value) / Math.max(Number(total), 1)) * 87));
     }
-    state.output = await writeWorkbook(state.workbookFile, state.session, images, (message, value, total) => setBusy(true, message, 45 + (Number(value) / Math.max(Number(total), 1)) * 52));
     downloadOutput();
     toast("Excel 已生成并开始下载", "success");
   } catch (error) {

@@ -1,9 +1,16 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: "/amazon-quarterly-tool-web/",
+  base: "./",
   build: {
     target: "es2022",
     sourcemap: true,
+    cssCodeSplit: false,
+    assetsInlineLimit: Number.MAX_SAFE_INTEGER,
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: true,
+      },
+    },
   },
 });

@@ -281,13 +281,19 @@ function textWords(content, viewport) {
   });
 }
 
+let browserPdfWorker = null;
+
 export async function extractPdf(file, onProgress = () => {}) {
   const { getDocument, GlobalWorkerOptions } = typeof window === "undefined"
     ? await import("pdfjs-dist/legacy/build/pdf.mjs")
     : await import("pdfjs-dist");
   if (typeof window !== "undefined") {
-    const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
-    GlobalWorkerOptions.workerSrc = workerModule.default;
+    if (!browserPdfWorker) {
+      const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?raw");
+      const workerUrl = URL.createObjectURL(new Blob([workerModule.default], { type: "text/javascript" }));
+      browserPdfWorker = new Worker(workerUrl, { type: "module", name: "amazon-pdf-parser" });
+    }
+    GlobalWorkerOptions.workerPort = browserPdfWorker;
   }
   const parsed = parseFilename(file.name);
   const config = countryConfig(parsed.country);
