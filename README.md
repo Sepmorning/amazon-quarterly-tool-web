@@ -1,0 +1,67 @@
+# Amazon 季度交易数据核验台（Web）
+
+一个完全运行在浏览器本地的 Amazon 季度跨境电商交易数据工具：拖入 PDF 文件夹和公司工作簿，完成自动提取、逐字段证据核对、写入前汇总确认，最后下载带公式和完整报告截图的新工作簿。
+
+在线使用：<https://sepmorning.github.io/amazon-quarterly-tool-web/>
+
+## 特点
+
+- 纯静态网页。PDF 和工作簿不会上传到服务器，也不需要安装 Microsoft Excel 或 WPS。
+- 支持美国、加拿大、墨西哥、巴西、日本、德国、英国的 Amazon Custom Summary。
+- 原始 PDF 局部证据在上，数值与操作在下，六个字段始终完整可见。
+- Enter 确认并自动前进；方向键按国家与字段的线性顺序上下移动；`M`、`0`、`S` 分别处理人工值、确认零、跳过。
+- “佣金服务费”按 `ABS(Expenses subtotal Debits) - 广告费` 计算，并在 Excel 中写入公式。日本公式保留 0 位小数，其他国家保留 2 位小数。
+- 目标季度不存在时，优先复制“季度模板”或“模板”，否则复制最近的历史季度。
+- 直接修改 OOXML 包，保留原工作簿结构，并把每个国家的完整 PDF 报告截图嵌入 K 列。
+- 写入前汇总是必经步骤；确认后一次生成并下载 Excel。
+
+## 使用方法
+
+1. 将本季度所有 PDF 放在同一文件夹，文件名使用 `2026Q2-HY-US-…pdf` 格式。
+2. 打开在线页面，把 PDF 文件夹和 `.xlsx` / `.xlsm` 工作簿分别拖入对应区域。
+3. 点击“解析并生成审核证据”，从第一个国家第一个字段开始核对。
+4. 全部完成后检查写入前汇总，点击“确认无误并生成 Excel”。
+5. 浏览器会下载一个新工作簿，原工作簿不会被修改。
+
+建议使用当前版本的 Chrome 或 Edge。工作簿与多页 PDF 会在内存中处理；非常大的文件应分批使用。
+
+## 支持的字段
+
+| 字段 | 来源/算法 | Excel 列 |
+| --- | --- | --- |
+| 收入 | Income subtotal Credits | E |
+| 退款 | `ABS(Income subtotal Debits)` | F |
+| 佣金返款 | Selling fee refunds Credits | G |
+| 运费返款 | FBA transaction fee refunds Credits | H |
+| 广告 | Cost of Advertising Debits | I |
+| 佣金服务费 | `ABS(Expenses subtotal Debits) - 广告` | J（公式） |
+| 完整报告截图 | PDF 全页纵向拼接 | K（图片） |
+
+## 本地开发
+
+要求 Node.js 20.19 或更高版本。
+
+```bash
+npm install
+npm run dev
+```
+
+运行测试和生产构建：
+
+```bash
+npm test
+npm run build
+```
+
+项目推送到 `main` 后，GitHub Actions 会测试、构建并部署 `dist` 到 GitHub Pages。
+
+## 隐私与限制
+
+- 本项目没有后端、账号系统或遥测代码，选择的业务文件只在当前浏览器标签页内处理。
+- 浏览器安全模型不允许网页覆盖本机源文件，因此结果会作为新文件下载。
+- 加密、损坏或非标准 OOXML 工作簿不受支持。
+- 自动提取不能代替人工复核；页面强制逐字段审核，并在生成前显示最终汇总。
+
+## 许可
+
+[MIT](LICENSE)
