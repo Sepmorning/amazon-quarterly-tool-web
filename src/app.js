@@ -129,7 +129,7 @@ function inputView() {
         </div>
       </div>
       <div class="input-footer">
-        <div class="requirements"><span class="dot"></span><span>文件名格式：<b>2026Q2-HY-US-…pdf</b></span><span class="divider"></span><span>支持 US / CA / MX / BR / JP / DE / UK</span></div>
+        <div class="requirements"><span class="dot"></span><span>文件名格式：<b>2026Q2-HY-US-…pdf</b></span><span class="divider"></span><span>支持 15 个 Amazon 国家站点</span></div>
         <button id="startButton" class="primary-button" ${!state.pdfFiles.length ? "disabled" : ""}>解析并开始审核 ${icon("arrow")}</button>
       </div>
     </section>

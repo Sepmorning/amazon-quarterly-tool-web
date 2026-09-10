@@ -1,4 +1,4 @@
-import { COUNTRIES, TARGET_FIELDS, countryConfig } from "./config.js";
+import { COUNTRIES, TARGET_FIELDS, canonicalCountryCode, countryConfig } from "./config.js";
 
 const FILE_PATTERN = /^(?<quarter>\d{4}Q[1-4])-(?<store>[A-Za-z0-9][A-Za-z0-9_]*?)-(?<country>[A-Za-z]{2})(?:-|_).+\.pdf$/i;
 const UNICODE_MINUSES = /[−–—‒﹣－]/g;
@@ -9,13 +9,14 @@ export function parseFilename(name, requireSupported = true) {
   if (!match?.groups) {
     throw new Error(`PDF 文件名不符合“季度-店铺-国家-其他内容.pdf”：${base}`);
   }
+  const filenameCountry = match.groups.country.toUpperCase();
   const parsed = {
     quarter: match.groups.quarter.toUpperCase(),
     store: match.groups.store.toUpperCase(),
-    country: match.groups.country.toUpperCase(),
+    country: canonicalCountryCode(filenameCountry),
   };
   if (requireSupported && !COUNTRIES[parsed.country]) {
-    throw new Error(`文件名中的国家 ${parsed.country} 尚未配置`);
+    throw new Error(`文件名中的国家 ${filenameCountry} 尚未配置`);
   }
   return parsed;
 }

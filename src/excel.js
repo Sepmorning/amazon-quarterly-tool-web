@@ -1,6 +1,6 @@
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import JSZip from "jszip";
-import { COUNTRIES, FIELD_COLUMNS, TARGET_FIELDS } from "./config.js";
+import { COUNTRIES, FIELD_COLUMNS, TARGET_FIELDS, canonicalCountryCode } from "./config.js";
 import { DECISIONS, finalValue } from "./review.js";
 
 const MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -148,19 +148,21 @@ function normalized(value) {
 }
 
 export function findCountryRow(rows, code) {
-  const config = COUNTRIES[code.toUpperCase()];
-  const aliases = new Set(config.marketplaces.map(normalized));
+  const canonicalCode = canonicalCountryCode(code);
+  const config = COUNTRIES[canonicalCode];
+  const marketplaceAliases = new Set(config.marketplaces.map(normalized));
+  const countryNameAliases = new Set([config.displayName, ...(config.countryNameAliases || [])].map(normalized));
   const candidates = rows.flatMap((row) => {
     let score = 0;
     if (normalized(row.currency) === normalized(config.currency)) score += 4;
-    if (normalized(row.countryName) === normalized(config.displayName)) score += 5;
-    if (aliases.has(normalized(row.marketplace))) score += 6;
+    if (countryNameAliases.has(normalized(row.countryName))) score += 5;
+    if (marketplaceAliases.has(normalized(row.marketplace))) score += 6;
     return score >= 5 ? [[score, row.row]] : [];
   });
   if (!candidates.length) return null;
   const best = Math.max(...candidates.map(([score]) => score));
   const rowsAtBest = candidates.filter(([score]) => score === best).map(([, row]) => row);
-  if (rowsAtBest.length !== 1) throw new Error(`${code} 在工作簿中匹配到多个同分候选行：${rowsAtBest.join(", ")}`);
+  if (rowsAtBest.length !== 1) throw new Error(`${canonicalCode} 在工作簿中匹配到多个同分候选行：${rowsAtBest.join(", ")}`);
   return rowsAtBest[0];
 }
 
@@ -312,7 +314,7 @@ function updateDimension(sheet, rowNumber) {
 }
 
 function appendCountryRow(sheet, rows, code) {
-  const config = COUNTRIES[code];
+  const config = COUNTRIES[canonicalCountryCode(code)];
   const sheetData = elements(sheet, MAIN_NS, "sheetData")[0];
   if (!sheetData) throw new Error("目标工作表缺少 sheetData");
   const existingRows = directChildren(sheetData, MAIN_NS, "row");
@@ -336,6 +338,24 @@ function appendCountryRow(sheet, rows, code) {
   updateDimension(sheet, rowNumber);
   rows.push({ row: rowNumber, marketplace: config.marketplaces[0], countryName: config.displayName, currency: config.currency });
   return rowNumber;
+}
+
+function ensureCountryIdentity(sheet, rows, rowNumber, code) {
+  const config = COUNTRIES[canonicalCountryCode(code)];
+  const row = rows.find((item) => item.row === rowNumber);
+  const placeholders = new Set(["", "无", "n/a", "na", "-"]);
+  if (!row || placeholders.has(normalized(row.marketplace))) {
+    writeInlineString(findOrCreateCell(sheet, rowNumber, 2), config.marketplaces[0]);
+    if (row) row.marketplace = config.marketplaces[0];
+  }
+  if (!row || placeholders.has(normalized(row.countryName))) {
+    writeInlineString(findOrCreateCell(sheet, rowNumber, 3), config.displayName);
+    if (row) row.countryName = config.displayName;
+  }
+  if (!row || placeholders.has(normalized(row.currency))) {
+    writeInlineString(findOrCreateCell(sheet, rowNumber, 4), config.currency);
+    if (row) row.currency = config.currency;
+  }
 }
 
 function clearCopiedQuarterRows(sheet, rows) {
@@ -474,6 +494,7 @@ export async function writeWorkbook(sourceFile, session, reportImages, onProgres
       row = appendCountryRow(target.sheet, rows, country.metadata.country);
       appended.add(country.key);
     }
+    ensureCountryIdentity(target.sheet, rows, row, country.metadata.country);
     rowByKey.set(country.key, row);
   }
   const images = [];

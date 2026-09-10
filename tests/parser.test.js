@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { countryConfig } from "../src/config.js";
+import { canonicalCountryCode, countryConfig } from "../src/config.js";
 import { extractPageSnapshot, parseAmount, parseFilename } from "../src/parser.js";
 
 function word(text, x0, top, width = 58, height = 10) {
@@ -9,6 +9,8 @@ function word(text, x0, top, width = 58, height = 10) {
 
 test("解析季度 PDF 文件名", () => {
   assert.deepEqual(parseFilename("2026Q2-HY-US-2026Apr1-2026Jun30CustomSummary.pdf"), { quarter: "2026Q2", store: "HY", country: "US" });
+  assert.deepEqual(parseFilename("2026Q1-XN-KR-2026Jan1-2026Mar31CustomSummary.pdf"), { quarter: "2026Q1", store: "XN", country: "SE" });
+  assert.equal(canonicalCountryCode("KR"), "SE");
   assert.throws(() => parseFilename("report.pdf"), /文件名不符合/);
 });
 

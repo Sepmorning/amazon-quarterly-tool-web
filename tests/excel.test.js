@@ -17,13 +17,17 @@ test("国家匹配与工作表行顺序无关", () => {
   const rows = [
     { row: 18, marketplace: "amazon.co.jp", countryName: "日本", currency: "JPY" },
     { row: 2, marketplace: "amazon.com.br", countryName: "巴西", currency: "BRL" },
+    { row: 6, marketplace: "amazon.com.br", countryName: "巴西\n（联合报告）", currency: "BRL" },
     { row: 44, marketplace: "amazon.com", countryName: "美国", currency: "USD" },
     { row: 7, marketplace: "amazon.ca", countryName: "加拿大", currency: "CAD" },
   ];
   assert.equal(findCountryRow(rows, "US"), 44);
   assert.equal(findCountryRow(rows, "CA"), 7);
   assert.equal(findCountryRow(rows, "JP"), 18);
-  assert.equal(findCountryRow(rows, "BR"), 2);
+  assert.throws(() => findCountryRow(rows, "BR"), /多个同分候选行/);
+  assert.equal(findCountryRow([rows[2]], "BR"), 6);
+  assert.equal(findCountryRow([{ row: 16, marketplace: "", countryName: "比利时", currency: "无" }], "BE"), 16);
+  assert.equal(findCountryRow([{ row: 13, marketplace: "amazon.SE", countryName: "瑞典", currency: "kr" }], "KR"), 13);
 });
 
 function makeResult(code, quarter = "2026Q2", values = [100, 20, 3, 1, 8, 42], subtotal = -50) {
@@ -81,6 +85,7 @@ function cellDisplay(cell, shared) {
 }
 
 const samplePath = process.env.AMAZON_SAMPLE_EXCEL;
+const extendedSamplePath = process.env.AMAZON_EXTENDED_SAMPLE_EXCEL;
 test("真实模板可直接分析并生成保留公式和截图的工作簿", { skip: !samplePath }, async () => {
   const bytes = await fs.readFile(samplePath);
   const source = fileFromBytes(samplePath.split(/[\\/]/).pop(), bytes);
@@ -182,4 +187,25 @@ test("工作簿缺少已上传国家时会自动在末尾追加并写入", { ski
   assert.equal(cellDisplay(resultCells.get(`C${appendedRow}`), resultSheet.shared), "加拿大");
   assert.equal(cellDisplay(resultCells.get(`D${appendedRow}`), resultSheet.shared), "CAD");
   assert.equal(cellDisplay(resultCells.get(`E${appendedRow}`), resultSheet.shared), "700");
+});
+
+test("全零国家写入数值 0、补齐站点币种并嵌入截图", { skip: !extendedSamplePath }, async () => {
+  const bytes = await fs.readFile(extendedSamplePath);
+  const source = fileFromBytes(extendedSamplePath.split(/[\\/]/).pop(), bytes);
+  const be = makeResult("BE", "2026Q1", [0, 0, 0, 0, 0, 0], 0);
+  const output = await writeWorkbook(source, approvedSession([be]), new Map([[be.key, { bytes: tinyPng, width: 900, height: 1600 }]]));
+  assert.equal(output.statuses[be.key], "WRITTEN");
+  const zip = await JSZip.loadAsync(await output.blob.arrayBuffer());
+  const { sheet, shared } = await sheetPackage(zip, "2026Q1");
+  const cells = cellsByReference(sheet);
+  const rows = Array.from(sheet.getElementsByTagNameNS(main, "row")).map((row) => {
+    const rowNumber = Number(row.getAttribute("r"));
+    return { row: rowNumber, marketplace: cellDisplay(cells.get(`B${rowNumber}`), shared), countryName: cellDisplay(cells.get(`C${rowNumber}`), shared), currency: cellDisplay(cells.get(`D${rowNumber}`), shared) };
+  });
+  const row = findCountryRow(rows, "BE");
+  assert.equal(cellDisplay(cells.get(`B${row}`), shared), "amazon.be");
+  assert.equal(cellDisplay(cells.get(`D${row}`), shared), "EUR");
+  for (const column of ["E", "F", "G", "H", "I", "J"]) assert.equal(cellDisplay(cells.get(`${column}${row}`), shared), "0");
+  assert.match(cells.get(`J${row}`).getElementsByTagNameNS(main, "f")[0].textContent, /^ROUND\(ABS\(0\)-I\d+,2\)$/);
+  assert.ok(Object.keys(zip.files).some((name) => /^xl\/media\/amazon_report_\d+\.png$/.test(name)));
 });
