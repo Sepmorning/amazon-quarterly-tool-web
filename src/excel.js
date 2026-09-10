@@ -258,7 +258,7 @@ function clearCell(cell) {
 
 function numberText(value) {
   if (!Number.isFinite(value)) throw new Error(`无效数值：${value}`);
-  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(10)));
+  return String(value);
 }
 
 function writeNumber(cell, value) {
@@ -522,8 +522,7 @@ export async function writeWorkbook(sourceFile, session, reportImages, onProgres
       if (fieldName === "commission_service_fee" && field.decision === DECISIONS.APPROVED) {
         const subtotal = country.expensesSubtotalDebits;
         if (subtotal == null) throw new Error(`${country.metadata.countryName} 缺少 Expenses subtotal Debits`);
-        const decimals = country.metadata.currency === "JPY" ? 0 : 2;
-        writeFormula(cell, `ROUND(ABS(${numberText(subtotal)})-I${row},${decimals})`, value);
+        writeFormula(cell, `ABS(${numberText(subtotal)})-I${row}`, value);
       } else writeNumber(cell, value);
     }
     if (failed) continue;
@@ -586,8 +585,7 @@ export async function createSummaryWorkbook(session, reportImages = new Map(), o
     const values = TARGET_FIELDS.map((name) => finalValue(country.fields[name]));
     const commission = country.fields.commission_service_fee;
     if (commission.decision === DECISIONS.APPROVED && country.expensesSubtotalDebits != null && values[4] != null && values[5] != null) {
-      const decimals = country.metadata.currency === "JPY" ? 0 : 2;
-      values[5] = { formula: `ROUND(ABS(${numberText(country.expensesSubtotalDebits)})-G${rowNumber},${decimals})`, cached: finalValue(commission) };
+      values[5] = { formula: `ABS(${numberText(country.expensesSubtotalDebits)})-G${rowNumber}`, cached: finalValue(commission) };
     }
     const cells = [
       summaryCell(`A${rowNumber}`, `${country.metadata.countryName} (${country.metadata.country})`, 3),

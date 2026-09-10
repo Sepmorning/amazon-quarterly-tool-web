@@ -1,4 +1,5 @@
 import { TARGET_FIELDS } from "./config.js";
+import { subtractAbsAmounts } from "./amounts.js";
 
 export const DECISIONS = Object.freeze({ APPROVED: "APPROVED", CONFIRMED_ZERO: "CONFIRMED_ZERO", MANUAL: "MANUAL", SKIP: "SKIP" });
 
@@ -47,8 +48,7 @@ export function setDecision(session, countryKey, fieldName, decision, manualValu
     const advertising = finalValue(field);
     const subtotal = country.expensesSubtotalDebits;
     if (advertising == null || subtotal == null) throw new Error("广告或 Expenses subtotal Debits 不可用");
-    const decimals = country.metadata.currency === "JPY" ? 0 : 2;
-    const recalculated = Number((Math.abs(subtotal) - advertising).toFixed(decimals));
+    const recalculated = subtractAbsAmounts(subtotal, advertising);
     if (recalculated < 0) throw new Error("重新计算的佣金服务费为负数，请人工核对");
     const commission = country.fields.commission_service_fee;
     commission.suggestedValue = recalculated;

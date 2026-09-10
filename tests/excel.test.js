@@ -106,14 +106,14 @@ test("真实模板可直接分析并生成保留公式和截图的工作簿", { 
   const sheet = domParser.parseFromString(await zip.file(sheetPath).async("string"));
   const cells = Array.from(sheet.getElementsByTagNameNS(main, "c"));
   const commission = cells.find((cell) => cell.getAttribute("r") === "J3");
-  assert.match(commission.getElementsByTagNameNS(main, "f")[0].textContent, /^ROUND\(ABS\(-44526\.88\)-I3,2\)$/);
+  assert.equal(commission.getElementsByTagNameNS(main, "f")[0].textContent, "ABS(-44526.88)-I3");
   assert.ok(sheet.getElementsByTagNameNS(main, "drawing").length >= 1);
   assert.ok(Object.keys(zip.files).some((name) => /^xl\/media\/amazon_report_\d+\.png$/.test(name)));
 });
 
 test("无公司工作簿也能导出预览式解析汇总表", async () => {
   const us = makeResult("US", "2026Q2", [120, 10, 2, 1, 8, 42], -50);
-  const jp = makeResult("JP", "2026Q2", [1200, 100, 20, 0, 300, 700], -1000);
+  const jp = makeResult("JP", "2026Q2", [1200, 100, 20, 0, 300, 700.005], -1000.005);
   const images = new Map([
     [jp.key, { bytes: tinyPng, width: 900, height: 1600 }],
     [us.key, { bytes: tinyPng, width: 900, height: 1600 }],
@@ -128,8 +128,8 @@ test("无公司工作簿也能导出预览式解析汇总表", async () => {
   assert.equal(cellDisplay(cells.get("A4"), []), "日本 (JP)");
   assert.equal(cellDisplay(cells.get("A5"), []), "美国 (US)");
   assert.equal(cellDisplay(cells.get("C4"), []), "1200");
-  assert.equal(cells.get("H4").getElementsByTagNameNS(main, "f")[0].textContent, "ROUND(ABS(-1000)-G4,0)");
-  assert.equal(cells.get("H5").getElementsByTagNameNS(main, "f")[0].textContent, "ROUND(ABS(-50)-G5,2)");
+  assert.equal(cells.get("H4").getElementsByTagNameNS(main, "f")[0].textContent, "ABS(-1000.005)-G4");
+  assert.equal(cells.get("H5").getElementsByTagNameNS(main, "f")[0].textContent, "ABS(-50)-G5");
   assert.equal(Array.from(sheet.getElementsByTagNameNS(main, "row")).find((row) => row.getAttribute("r") === "4").getAttribute("ht"), "260");
   assert.ok(sheet.getElementsByTagNameNS(main, "drawing").length >= 1);
   assert.equal(Object.keys(zip.files).filter((name) => /^xl\/media\/amazon_report_\d+\.png$/.test(name)).length, 2);
@@ -206,6 +206,6 @@ test("全零国家写入数值 0、补齐站点币种并嵌入截图", { skip: !
   assert.equal(cellDisplay(cells.get(`B${row}`), shared), "amazon.be");
   assert.equal(cellDisplay(cells.get(`D${row}`), shared), "EUR");
   for (const column of ["E", "F", "G", "H", "I", "J"]) assert.equal(cellDisplay(cells.get(`${column}${row}`), shared), "0");
-  assert.match(cells.get(`J${row}`).getElementsByTagNameNS(main, "f")[0].textContent, /^ROUND\(ABS\(0\)-I\d+,2\)$/);
+  assert.match(cells.get(`J${row}`).getElementsByTagNameNS(main, "f")[0].textContent, /^ABS\(0\)-I\d+$/);
   assert.ok(Object.keys(zip.files).some((name) => /^xl\/media\/amazon_report_\d+\.png$/.test(name)));
 });

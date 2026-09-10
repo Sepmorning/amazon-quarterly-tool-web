@@ -1,4 +1,5 @@
 import { COUNTRIES, TARGET_FIELDS, canonicalCountryCode, countryConfig } from "./config.js";
+import { subtractAbsAmounts } from "./amounts.js";
 
 const FILE_PATTERN = /^(?<quarter>\d{4}Q[1-4])-(?<store>[A-Za-z0-9][A-Za-z0-9_]*?)-(?<country>[A-Za-z]{2})(?:-|_).+\.pdf$/i;
 const UNICODE_MINUSES = /[−–—‒﹣－]/g;
@@ -234,7 +235,7 @@ export function extractPageSnapshot(page, config) {
   } else if (ad.value == null) {
     fields.commission_service_fee = { name: "commission_service_fee", status: ad.status, value: null, rawText: ad.rawText, message: "广告字段不可用，无法按 Expenses Debit subtotal - Advertising 计算", sourceBbox: ad.sourceBbox };
   } else {
-    const value = Number((Math.abs(expensesDebit) - ad.value).toFixed(config.currency === "JPY" ? 0 : 2));
+    const value = subtractAbsAmounts(expensesDebit, ad.value);
     fields.commission_service_fee = value < 0
       ? { name: "commission_service_fee", status: "PARSE_ERROR", value: null, rawText: "", message: "佣金服务费计算结果为负数，请人工核对", sourceBbox: null }
       : { ...fieldFromAmount("commission_service_fee", value, expensesSubtotal, "ABS(Expenses subtotal Debits) - Advertising"), sourceBbox: unionBbox(ad.sourceBbox, expensesSubtotal?.bbox) };

@@ -29,6 +29,7 @@ const state = {
   progressText: "",
   previewOpen: false,
   output: null,
+  countryScrollTop: 0,
 };
 
 const icon = (name, className = "") => {
@@ -237,14 +238,37 @@ function successView() {
 }
 
 function render() {
+  const currentList = document.querySelector(".country-list");
+  if (currentList) state.countryScrollTop = currentList.scrollTop;
   app.innerHTML = state.output ? successView() : state.session ? reviewView() : inputView();
   bindEvents();
-  if (state.session && !state.output) updateEvidence();
+  if (state.session && !state.output) {
+    keepActiveCountryVisible();
+    updateEvidence();
+  }
   if (state.previewOpen && state.session) {
     document.body.insertAdjacentHTML("beforeend", previewModal());
     bindPreviewEvents();
   }
   renderBusy();
+}
+
+function keepActiveCountryVisible() {
+  requestAnimationFrame(() => {
+    const list = document.querySelector(".country-list");
+    const active = list?.querySelector(".country-row.active");
+    if (!list || !active) return;
+    list.scrollTop = state.countryScrollTop;
+    const listRect = list.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    const padding = 7;
+    if (activeRect.top < listRect.top + padding) {
+      list.scrollTop -= listRect.top + padding - activeRect.top;
+    } else if (activeRect.bottom > listRect.bottom - padding) {
+      list.scrollTop += activeRect.bottom - listRect.bottom + padding;
+    }
+    state.countryScrollTop = list.scrollTop;
+  });
 }
 
 async function filesFromEntry(entry) {
@@ -306,7 +330,7 @@ function bindEvents() {
   document.querySelector("#undoButton")?.addEventListener("click", doUndo);
   document.querySelector("#previewButton")?.addEventListener("click", openPreview);
   document.querySelector("#downloadAgain")?.addEventListener("click", downloadOutput);
-  document.querySelector("#newBatch")?.addEventListener("click", () => { Object.assign(state, { pdfFiles: [], workbookFile: null, session: null, cursor: null, workbookPlan: null, output: null, previewOpen: false }); render(); });
+  document.querySelector("#newBatch")?.addEventListener("click", () => { Object.assign(state, { pdfFiles: [], workbookFile: null, session: null, cursor: null, workbookPlan: null, output: null, previewOpen: false, countryScrollTop: 0 }); render(); });
   document.querySelector("#auditDownload")?.addEventListener("click", downloadAudit);
 }
 
@@ -340,6 +364,7 @@ async function startExtraction() {
     }
     state.session = createReviewSession(results, failures);
     state.cursor = firstUnresolved(state.session);
+    state.countryScrollTop = 0;
     toast(`解析完成：成功 ${results.length}，失败 ${failures.length}`, failures.length ? "warning" : "success");
   } catch (error) {
     toast(error.message, "error");

@@ -36,3 +36,11 @@ test("确认广告后佣金候选值自动重算，撤销可完整恢复", () =>
   assert.equal(session.countries[0].fields.advertising.decision, null);
   assert.equal(session.countries[0].fields.commission_service_fee.suggestedValue, null);
 });
+
+test("佣金服务费按 PDF 金额精度计算，不按币种强制取整或保留两位", () => {
+  const source = result("US");
+  source.expensesSubtotalDebits = -1234.567;
+  const session = createReviewSession([source]);
+  setDecision(session, "2026Q2-HY-US", "advertising", DECISIONS.MANUAL, 0.008);
+  assert.equal(session.countries[0].fields.commission_service_fee.suggestedValue, 1234.559);
+});
