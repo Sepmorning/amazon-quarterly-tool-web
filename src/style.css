@@ -95,7 +95,7 @@ button:disabled { cursor: not-allowed !important; opacity: .43; transform: none 
 .panel-title h2 { font-size: 17px; }
 .progress-track { height: 5px; margin: 18px 8px 19px; overflow: hidden; border-radius: 5px; background: #dce9e6; }
 .progress-track i { display: block; height: 100%; border-radius: inherit; background: #2563eb; transition: width .3s; }
-.country-list { flex: 1; min-height: 0; padding: 2px 7px 2px 0; display: grid; align-content: start; gap: 7px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-behavior: smooth; }
+.country-list { flex: 1; min-height: 0; padding: 2px 7px 2px 0; display: grid; align-content: start; gap: 7px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .country-list::-webkit-scrollbar, .review-main::-webkit-scrollbar { width: 8px; }
 .country-list::-webkit-scrollbar-thumb, .review-main::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: #b8c7dc; background-clip: padding-box; }
 .country-row { width: 100%; display: grid; grid-template-columns: 35px 1fr 8px auto; align-items: center; gap: 9px; padding: 11px 10px; border: 1px solid transparent; border-radius: 13px; background: transparent; cursor: pointer; text-align: left; transition: .17s; }

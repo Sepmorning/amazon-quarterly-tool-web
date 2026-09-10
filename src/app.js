@@ -30,6 +30,7 @@ const state = {
   previewOpen: false,
   output: null,
   countryScrollTop: 0,
+  renderedCountryKey: null,
 };
 
 const icon = (name, className = "") => {
@@ -107,7 +108,7 @@ function shell(content, step = 1) {
       </section>
       ${content}
     </main>
-    <footer><span>纯浏览器运行，不要求安装 Microsoft Excel 或 WPS</span><span class="footer-links"><a href="./local.html" download>下载离线版</a><a href="https://github.com/Sepmorning/amazon-quarterly-tool-web" target="_blank" rel="noreferrer">查看源代码 ↗</a></span></footer>
+    <footer><span>纯浏览器运行，不要求安装 Microsoft Excel 或 WPS</span><span class="footer-links"><a href="./local.html" download>下载离线版</a></span></footer>
     <div id="toastRoot" class="toast-root"></div>`;
 }
 
@@ -240,12 +241,15 @@ function successView() {
 function render() {
   const currentList = document.querySelector(".country-list");
   if (currentList) state.countryScrollTop = currentList.scrollTop;
+  const nextCountryKey = state.session && state.cursor ? state.cursor[0] : null;
+  const countryChanged = nextCountryKey !== state.renderedCountryKey;
   app.innerHTML = state.output ? successView() : state.session ? reviewView() : inputView();
   bindEvents();
   if (state.session && !state.output) {
-    keepActiveCountryVisible();
+    restoreCountryListScroll(countryChanged);
     updateEvidence();
   }
+  state.renderedCountryKey = nextCountryKey;
   if (state.previewOpen && state.session) {
     document.body.insertAdjacentHTML("beforeend", previewModal());
     bindPreviewEvents();
@@ -253,12 +257,13 @@ function render() {
   renderBusy();
 }
 
-function keepActiveCountryVisible() {
+function restoreCountryListScroll(countryChanged) {
   requestAnimationFrame(() => {
     const list = document.querySelector(".country-list");
     const active = list?.querySelector(".country-row.active");
-    if (!list || !active) return;
+    if (!list) return;
     list.scrollTop = state.countryScrollTop;
+    if (!countryChanged || !active) return;
     const listRect = list.getBoundingClientRect();
     const activeRect = active.getBoundingClientRect();
     const padding = 7;
@@ -330,7 +335,7 @@ function bindEvents() {
   document.querySelector("#undoButton")?.addEventListener("click", doUndo);
   document.querySelector("#previewButton")?.addEventListener("click", openPreview);
   document.querySelector("#downloadAgain")?.addEventListener("click", downloadOutput);
-  document.querySelector("#newBatch")?.addEventListener("click", () => { Object.assign(state, { pdfFiles: [], workbookFile: null, session: null, cursor: null, workbookPlan: null, output: null, previewOpen: false, countryScrollTop: 0 }); render(); });
+  document.querySelector("#newBatch")?.addEventListener("click", () => { Object.assign(state, { pdfFiles: [], workbookFile: null, session: null, cursor: null, workbookPlan: null, output: null, previewOpen: false, countryScrollTop: 0, renderedCountryKey: null }); render(); });
   document.querySelector("#auditDownload")?.addEventListener("click", downloadAudit);
 }
 
@@ -365,6 +370,7 @@ async function startExtraction() {
     state.session = createReviewSession(results, failures);
     state.cursor = firstUnresolved(state.session);
     state.countryScrollTop = 0;
+    state.renderedCountryKey = null;
     toast(`解析完成：成功 ${results.length}，失败 ${failures.length}`, failures.length ? "warning" : "success");
   } catch (error) {
     toast(error.message, "error");
