@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { canonicalCountryCode, countryConfig } from "../src/config.js";
-import { extractPageSnapshot, parseAmount, parseFilename } from "../src/parser.js";
+import { extractPageSnapshot, parseAmount, parseFilename, planEvidenceViewport } from "../src/parser.js";
 
 function word(text, x0, top, width = 58, height = 10) {
   return { text, x0, x1: x0 + width, top, bottom: top + height, centerX: x0 + width / 2 };
@@ -34,6 +34,20 @@ test("从双栏明细快照提取六个字段并计算佣金服务费", () => {
   ];
   const result = extractPageSnapshot({ pageIndex: 0, width: 800, height: 500, words }, countryConfig("US"));
   assert.deepEqual(Object.values(result.fields).map((field) => field.value), [6984.66, 2577.95, 35.61, 0, 202.28, 2986.05]);
+  assert.equal(result.fields.income.evidenceRegion.x0, 0);
+  assert.equal(result.fields.income.evidenceRegion.x1, result.fields.advertising.evidenceRegion.x0);
+  assert.equal(result.fields.advertising.evidenceRegion.x1, 800);
+  assert.deepEqual(result.fields.income.evidenceMarks.map((mark) => mark.bbox.x0), [340]);
+  assert.deepEqual(result.fields.advertising.evidenceMarks.map((mark) => mark.bbox.x0), [610]);
+  assert.deepEqual(result.fields.commission_service_fee.evidenceMarks.map((mark) => mark.label), ["Expenses 小计", "广告"]);
   assert.equal(result.incomeValidation.status, "PASS");
   assert.equal(result.expensesValidation.status, "PASS");
+});
+
+test("上下文证据区域会限制在 PDF 页面内", () => {
+  assert.deepEqual(
+    planEvidenceViewport({ evidenceRegion: { pageIndex: 2, x0: -20, top: -10, x1: 900, bottom: 700 } }, 800, 500),
+    { pageIndex: 2, x0: 0, top: 0, x1: 800, bottom: 500 },
+  );
+  assert.equal(planEvidenceViewport({}, 800, 500), null);
 });

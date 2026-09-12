@@ -125,9 +125,12 @@ button:disabled { cursor: not-allowed !important; opacity: .43; transform: none 
 .validation-pills .warn { color: #9b662e; background: #fff3e4; }
 .evidence-card { border: 1px solid var(--line); border-radius: 17px; overflow: hidden; background: #f8faf9; }
 .evidence-label { height: 38px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); color: #496268; font-size: 11px; font-weight: 700; }
-.evidence-label small { color: #90a0a2; }
-.canvas-stage { height: clamp(210px, 30vh, 340px); padding: 18px; display: grid; place-items: center; overflow: auto; background: #f5f7fb; }
-.canvas-stage canvas { display: block; max-width: 100%; height: auto; border-radius: 4px; box-shadow: 0 8px 26px rgba(18,44,52,.1); }
+.evidence-label small { display: flex; align-items: center; gap: 12px; color: #90a0a2; }
+.mark-key { display: inline-flex; align-items: center; gap: 5px; color: #526b91; }
+.mark-key i { width: 9px; height: 9px; border: 2px solid #2563eb; border-radius: 2px; background: rgba(37,99,235,.14); }
+.mark-key.muted { color: #9a6a3c; }
+.canvas-stage { height: clamp(230px, 34vh, 390px); padding: 18px; display: grid; place-items: center; overflow: hidden; background: #edf3fb; }
+.canvas-stage canvas { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; border: 1px solid #d8e2ef; border-radius: 5px; background: white; box-shadow: 0 8px 26px rgba(18,44,52,.12); }
 .evidence-placeholder { display: grid; justify-items: center; gap: 7px; color: #91a1a3; text-align: center; }
 .evidence-placeholder .icon { width: 34px; height: 34px; margin-bottom: 4px; }
 .evidence-placeholder b { color: #62777b; font-size: 13px; }

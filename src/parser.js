@@ -168,10 +168,24 @@ function subtotalLine(lines, headerTop, aliases) {
   return lines.find((line) => line.top > headerTop + 5 && findAliasBbox(line, aliases)) || null;
 }
 
-function fieldFromAmount(name, value, line, message = "") {
+function wordBbox(word, pageIndex) {
+  if (!word) return null;
+  return { pageIndex, x0: word.x0, top: word.top, x1: word.x1, bottom: word.bottom };
+}
+
+function fieldFromAmount(name, value, line, message = "", amountWord = null) {
   if (!line || value == null) return { name, status: "NOT_FOUND", value: null, rawText: "", message: message || "未找到目标字段或金额", sourceBbox: null };
   const normalized = Math.abs(value);
-  return { name, status: normalized === 0 ? "VERIFIED_ZERO" : "FOUND", value: normalized, rawText: line.text, message, sourceBbox: line.bbox };
+  const amountBbox = wordBbox(amountWord, line.pageIndex);
+  return {
+    name,
+    status: normalized === 0 ? "VERIFIED_ZERO" : "FOUND",
+    value: normalized,
+    rawText: line.text,
+    message,
+    sourceBbox: line.bbox,
+    evidenceMarks: amountBbox ? [{ bbox: amountBbox, label: "当前数据" }] : [],
+  };
 }
 
 function targetField(name, lines, aliases, targetX, config, headerTop, subtotalTop, maxDistance) {
@@ -181,7 +195,18 @@ function targetField(name, lines, aliases, targetX, config, headerTop, subtotalT
   const line = matching[0];
   const amount = closestAmount(line, targetX, config, maxDistance);
   if (!amount) return { name, status: "PARSE_ERROR", value: null, rawText: line.text, message: "找到标签，但同一行目标金额列无法解析", sourceBbox: line.bbox };
-  return fieldFromAmount(name, amount[1], line);
+  return fieldFromAmount(name, amount[1], line, "", amount[0]);
+}
+
+function sectionEvidenceRegion(page, detailLine, subtotal, x0, x1) {
+  const verticalFallback = Math.max(page.height * 0.34, 180);
+  return {
+    pageIndex: page.pageIndex,
+    x0: Math.max(0, x0),
+    top: Math.max(0, detailLine.top - 18),
+    x1: Math.min(page.width, x1),
+    bottom: Math.min(page.height, subtotal ? subtotal.bottom + 18 : detailLine.top + verticalFallback),
+  };
 }
 
 function summaryAmount(lines, aliases, beforeTop, pageWidth, config) {
@@ -217,13 +242,17 @@ export function extractPageSnapshot(page, config) {
   const incomeSubtotal = subtotalLine(leftLines, detailLine.top, config.aliases.subtotal);
   const expensesSubtotal = subtotalLine(rightLines, detailLine.top, config.aliases.subtotal);
   const maxDistance = page.width * 0.12;
-  const incomeDebit = closestAmount(incomeSubtotal, leftDebitX, config, maxDistance)?.[1] ?? null;
-  const incomeCredit = closestAmount(incomeSubtotal, leftCreditX, config, maxDistance)?.[1] ?? null;
-  const expensesDebit = closestAmount(expensesSubtotal, rightDebitX, config, maxDistance)?.[1] ?? null;
-  const expensesCredit = closestAmount(expensesSubtotal, rightCreditX, config, maxDistance)?.[1] ?? null;
+  const incomeDebitMatch = closestAmount(incomeSubtotal, leftDebitX, config, maxDistance);
+  const incomeCreditMatch = closestAmount(incomeSubtotal, leftCreditX, config, maxDistance);
+  const expensesDebitMatch = closestAmount(expensesSubtotal, rightDebitX, config, maxDistance);
+  const expensesCreditMatch = closestAmount(expensesSubtotal, rightCreditX, config, maxDistance);
+  const incomeDebit = incomeDebitMatch?.[1] ?? null;
+  const incomeCredit = incomeCreditMatch?.[1] ?? null;
+  const expensesDebit = expensesDebitMatch?.[1] ?? null;
+  const expensesCredit = expensesCreditMatch?.[1] ?? null;
   const fields = {
-    income: fieldFromAmount("income", incomeCredit, incomeSubtotal, "来自 Income subtotal Credits"),
-    refund: fieldFromAmount("refund", incomeDebit, incomeSubtotal, "来自 Income subtotal Debits 的绝对值"),
+    income: fieldFromAmount("income", incomeCredit, incomeSubtotal, "来自 Income subtotal Credits", incomeCreditMatch?.[0]),
+    refund: fieldFromAmount("refund", incomeDebit, incomeSubtotal, "来自 Income subtotal Debits 的绝对值", incomeDebitMatch?.[0]),
   };
   const expensesSubtotalTop = expensesSubtotal?.top ?? null;
   fields.selling_fee_refund = targetField("selling_fee_refund", rightLines, config.aliases.selling_fee_refund, rightCreditX, config, detailLine.top, expensesSubtotalTop, maxDistance);
@@ -238,8 +267,19 @@ export function extractPageSnapshot(page, config) {
     const value = subtractAbsAmounts(expensesDebit, ad.value);
     fields.commission_service_fee = value < 0
       ? { name: "commission_service_fee", status: "PARSE_ERROR", value: null, rawText: "", message: "佣金服务费计算结果为负数，请人工核对", sourceBbox: null }
-      : { ...fieldFromAmount("commission_service_fee", value, expensesSubtotal, "ABS(Expenses subtotal Debits) - Advertising"), sourceBbox: unionBbox(ad.sourceBbox, expensesSubtotal?.bbox) };
+      : {
+          ...fieldFromAmount("commission_service_fee", value, expensesSubtotal, "ABS(Expenses subtotal Debits) - Advertising"),
+          sourceBbox: unionBbox(ad.sourceBbox, expensesSubtotal?.bbox),
+          evidenceMarks: [
+            expensesDebitMatch?.[0] ? { bbox: wordBbox(expensesDebitMatch[0], page.pageIndex), label: "Expenses 小计" } : null,
+            ad.evidenceMarks?.[0] ? { bbox: ad.evidenceMarks[0].bbox, label: "广告" } : null,
+          ].filter(Boolean),
+        };
   }
+  const leftRegion = sectionEvidenceRegion(page, detailLine, incomeSubtotal, 0, splitX);
+  const rightRegion = sectionEvidenceRegion(page, detailLine, expensesSubtotal, splitX, page.width);
+  for (const name of ["income", "refund"]) fields[name].evidenceRegion = leftRegion;
+  for (const name of ["selling_fee_refund", "fba_transaction_fee_refund", "advertising", "commission_service_fee"]) fields[name].evidenceRegion = rightRegion;
   const summaryIncome = summaryAmount(fullLines, config.aliases.income_section, detailLine.top, page.width, config);
   const summaryExpenses = summaryAmount(fullLines, config.aliases.expenses_section, detailLine.top, page.width, config);
   const tolerance = config.currency === "JPY" ? 1 : 0.01;
@@ -343,28 +383,82 @@ export async function extractPdf(file, onProgress = () => {}) {
   };
 }
 
+const evidencePageCache = new WeakMap();
+
+export function planEvidenceViewport(field, pageWidth, pageHeight) {
+  const source = field.evidenceRegion || field.sourceBbox;
+  if (!source) return null;
+  const x0 = Math.max(0, Math.min(pageWidth - 1, source.x0));
+  const top = Math.max(0, Math.min(pageHeight - 1, source.top));
+  const x1 = Math.max(x0 + 1, Math.min(pageWidth, source.x1));
+  const bottom = Math.max(top + 1, Math.min(pageHeight, source.bottom));
+  return { pageIndex: source.pageIndex, x0, top, x1, bottom };
+}
+
+async function cachedEvidencePage(result, pageIndex, scale) {
+  let pages = evidencePageCache.get(result);
+  if (!pages) {
+    pages = new Map();
+    evidencePageCache.set(result, pages);
+  }
+  const key = `${pageIndex}:${scale}`;
+  if (!pages.has(key)) {
+    pages.set(key, (async () => {
+      const page = await result.pdf.getPage(pageIndex + 1);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvasContext: canvas.getContext("2d", { alpha: false }), viewport }).promise;
+      return { canvas, pageWidth: viewport.width / scale, pageHeight: viewport.height / scale };
+    })());
+  }
+  return pages.get(key);
+}
+
+function drawEvidenceMark(context, mark, region, scale) {
+  const padding = 4 * scale;
+  const x = Math.max(1, (mark.bbox.x0 - region.x0) * scale - padding);
+  const y = Math.max(1, (mark.bbox.top - region.top) * scale - padding);
+  const right = Math.min(context.canvas.width - 1, (mark.bbox.x1 - region.x0) * scale + padding);
+  const bottom = Math.min(context.canvas.height - 1, (mark.bbox.bottom - region.top) * scale + padding);
+  const width = Math.max(1, right - x);
+  const height = Math.max(1, bottom - y);
+  context.save();
+  context.fillStyle = "rgba(37, 99, 235, 0.12)";
+  context.fillRect(x, y, width, height);
+  context.strokeStyle = "#2563eb";
+  context.lineWidth = Math.max(3, 2 * scale);
+  context.shadowColor = "rgba(37, 99, 235, 0.35)";
+  context.shadowBlur = 5 * scale;
+  context.strokeRect(x, y, width, height);
+  context.restore();
+}
+
 export async function renderEvidence(result, fieldName, canvas, scale = 2.15) {
-  const bbox = result.fields[fieldName].sourceBbox;
-  if (!bbox) {
+  const field = result.fields[fieldName];
+  const source = field.evidenceRegion || field.sourceBbox;
+  if (!source) {
     canvas.width = 0;
     canvas.height = 0;
     return false;
   }
-  const page = await result.pdf.getPage(bbox.pageIndex + 1);
-  const viewport = page.getViewport({ scale });
-  const full = document.createElement("canvas");
-  full.width = Math.ceil(viewport.width);
-  full.height = Math.ceil(viewport.height);
-  await page.render({ canvasContext: full.getContext("2d", { alpha: false }), viewport }).promise;
-  const padX = 14;
-  const padY = 9;
-  const x = Math.max(0, (bbox.x0 - padX) * scale);
-  const y = Math.max(0, (bbox.top - padY) * scale);
-  const right = Math.min(full.width, (bbox.x1 + padX) * scale);
-  const bottom = Math.min(full.height, (bbox.bottom + padY) * scale);
+  const rendered = await cachedEvidencePage(result, source.pageIndex, scale);
+  const region = planEvidenceViewport(field, rendered.pageWidth, rendered.pageHeight);
+  const x = region.x0 * scale;
+  const y = region.top * scale;
+  const right = region.x1 * scale;
+  const bottom = region.bottom * scale;
   canvas.width = Math.max(1, Math.ceil(right - x));
   canvas.height = Math.max(1, Math.ceil(bottom - y));
-  canvas.getContext("2d", { alpha: false }).drawImage(full, x, y, right - x, bottom - y, 0, 0, canvas.width, canvas.height);
+  const context = canvas.getContext("2d", { alpha: false });
+  context.drawImage(rendered.canvas, x, y, right - x, bottom - y, 0, 0, canvas.width, canvas.height);
+  const marks = (field.evidenceMarks || []).filter((mark) => mark?.bbox?.pageIndex === region.pageIndex);
+  if (marks.length) {
+    context.fillStyle = "rgba(15, 23, 42, 0.055)";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    for (const mark of marks) drawEvidenceMark(context, mark, region, scale);
+  }
   return true;
 }
 

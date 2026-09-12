@@ -136,7 +136,7 @@ function inputView() {
       </div>
     </section>
     <section class="feature-strip">
-      <article>${icon("eye")}<div><b>原始证据在上</b><span>截图与操作始终同屏</span></div></article>
+      <article>${icon("eye")}<div><b>上下文证据在上</b><span>保留表头并框出当前数据</span></div></article>
       <article>${icon("keyboard")}<div><b>键盘顺序审核</b><span>Enter 确认后自动前进</span></div></article>
       <article>${icon("sheet")}<div><b>两种导出方式</b><span>写入公司模板，或直接下载汇总表</span></div></article>
     </section>`, 1);
@@ -162,6 +162,11 @@ function reviewView() {
   const displayValue = field.suggestedValue ?? field.value;
   const adValue = finalValue(country.fields.advertising) ?? country.fields.advertising.value;
   const calculation = fieldName === "commission_service_fee" ? `<span class="calc-note">计算：ABS(Expenses Debits ${formatAmount(country.expensesSubtotalDebits, country.metadata.currency)}) − 广告 ${formatAmount(adValue, country.metadata.currency)}</span>` : "";
+  const evidencePage = field.evidenceRegion?.pageIndex ?? field.sourceBbox?.pageIndex;
+  const evidenceMarkCount = field.evidenceMarks?.length || 0;
+  const evidenceGuide = evidenceMarkCount
+    ? `<span class="mark-key"><i></i>${fieldName === "commission_service_fee" ? "蓝框已标出广告与 Expenses 小计" : "蓝框为当前数据"}</span>`
+    : `<span class="mark-key muted">显示所属区域，请人工定位</span>`;
   const countries = state.session.countries.map((item) => {
     const [label, tone] = statusForCountry(item);
     const active = item.key === country.key;
@@ -191,8 +196,8 @@ function reviewView() {
           <div class="validation-pills"><span class="${country.incomeValidation.status === "PASS" ? "pass" : "warn"}">Income ${country.incomeValidation.status}</span><span class="${country.expensesValidation.status === "PASS" ? "pass" : "warn"}">Expenses ${country.expensesValidation.status}</span></div>
         </header>
         <div class="evidence-card">
-          <div class="evidence-label"><span>Amazon 原 PDF 局部证据</span><small>第 ${field.sourceBbox ? field.sourceBbox.pageIndex + 1 : "—"} 页</small></div>
-          <div class="canvas-stage" id="canvasStage"><canvas id="evidenceCanvas"></canvas><div id="evidencePlaceholder" class="evidence-placeholder">${icon("eye")}<b>该字段没有可靠的自动证据区域</b><span>请参考原始文本并选择人工值、确认为 0 或跳过</span></div></div>
+          <div class="evidence-label"><span>Amazon 原 PDF 上下文证据</span><small>${evidenceGuide}<span>第 ${evidencePage == null ? "—" : evidencePage + 1} 页</span></small></div>
+          <div class="canvas-stage" id="canvasStage"><canvas id="evidenceCanvas"></canvas><div id="evidencePlaceholder" class="evidence-placeholder">${icon("eye")}<b>该字段没有可靠的上下文区域</b><span>请参考原始 PDF 并选择人工值、确认为 0 或跳过</span></div></div>
         </div>
         <div class="decision-card">
           <div class="value-line"><div><span>程序提取值</span><strong>${formatAmount(displayValue, country.metadata.currency)} <em>${country.metadata.currency}</em></strong></div><div class="source-status"><span class="status-tag ${field.status.toLowerCase()}">${field.status}</span>${calculation}</div></div>
