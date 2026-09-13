@@ -7,6 +7,7 @@ const distRoot = path.join(projectRoot, "dist");
 const readAsset = (source) => fs.readFile(path.join(distRoot, source.replace(/^\.\//, "").replace(/^\//, "")), "utf8");
 
 let html = await fs.readFile(path.join(distRoot, "index.html"), "utf8");
+html = html.replace(/\r\n?/g, "\n");
 const stylesheet = html.match(/<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["'][^>]*>/i);
 if (stylesheet) {
   const css = await readAsset(stylesheet[1]);

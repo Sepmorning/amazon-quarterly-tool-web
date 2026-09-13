@@ -284,24 +284,49 @@ function textWords(content, viewport) {
 }
 
 let browserPdfWorker = null;
+let browserPdfWorkerUrl = null;
+
+async function promiseWithTimeout(promise, milliseconds, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), milliseconds); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function configuredBrowserWorker(PDFWorker, GlobalWorkerOptions) {
+  if (!browserPdfWorkerUrl) {
+    const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?raw");
+    browserPdfWorkerUrl = URL.createObjectURL(new Blob([workerModule.default], { type: "text/javascript" }));
+  }
+  GlobalWorkerOptions.workerPort = null;
+  GlobalWorkerOptions.workerSrc = browserPdfWorkerUrl;
+  if (window.location.protocol === "file:" && !globalThis.pdfjsWorker?.WorkerMessageHandler) {
+    try {
+      globalThis.pdfjsWorker = await import(/* @vite-ignore */ browserPdfWorkerUrl);
+    } catch (error) {
+      throw new Error(`离线 PDF 解析引擎启动失败：${error.message}`);
+    }
+  }
+  if (!browserPdfWorker) browserPdfWorker = new PDFWorker({ name: "amazon-pdf-parser" });
+  await promiseWithTimeout(browserPdfWorker.promise, 20000, "PDF 解析引擎启动超时，请重新打开页面后再试");
+  return browserPdfWorker;
+}
 
 export async function extractPdf(file, onProgress = () => {}) {
-  const { getDocument, GlobalWorkerOptions } = typeof window === "undefined"
+  const { getDocument, GlobalWorkerOptions, PDFWorker } = typeof window === "undefined"
     ? await import("pdfjs-dist/legacy/build/pdf.mjs")
     : await import("pdfjs-dist");
-  if (typeof window !== "undefined") {
-    if (!browserPdfWorker) {
-      const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?raw");
-      const workerUrl = URL.createObjectURL(new Blob([workerModule.default], { type: "text/javascript" }));
-      browserPdfWorker = new Worker(workerUrl, { type: "module", name: "amazon-pdf-parser" });
-    }
-    GlobalWorkerOptions.workerPort = browserPdfWorker;
-  }
+  const worker = typeof window === "undefined" ? null : await configuredBrowserWorker(PDFWorker, GlobalWorkerOptions);
   const parsed = parseFilename(file.name);
   const config = countryConfig(parsed.country);
   const buffer = await file.arrayBuffer();
   const sourceSha256 = await sha256(buffer);
-  const loadingTask = getDocument({ data: new Uint8Array(buffer.slice(0)), useSystemFonts: true });
+  const loadingTask = getDocument({ data: new Uint8Array(buffer.slice(0)), useSystemFonts: true, ...(worker ? { worker } : {}) });
   const pdf = await loadingTask.promise;
   const snapshots = [];
   const errors = [];
