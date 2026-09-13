@@ -209,6 +209,16 @@ function sectionEvidenceRegion(page, detailLine, subtotal, x0, x1) {
   };
 }
 
+function expandEvidenceRegion(region, fields, page) {
+  const boxes = fields.flatMap((field) => [field?.sourceBbox, ...(field?.evidenceMarks || []).map((mark) => mark?.bbox)]).filter((box) => box?.pageIndex === region.pageIndex);
+  if (!boxes.length) return region;
+  return {
+    ...region,
+    top: Math.max(0, Math.min(region.top, ...boxes.map((box) => box.top - 18))),
+    bottom: Math.min(page.height, Math.max(region.bottom, ...boxes.map((box) => box.bottom + 18))),
+  };
+}
+
 function summaryAmount(lines, aliases, beforeTop, pageWidth, config) {
   const matching = lines.filter((line) => line.top < beforeTop - 4 && findAliasBbox(line, aliases)).sort((a, b) => b.top - a.top);
   for (const line of matching) {
@@ -276,8 +286,12 @@ export function extractPageSnapshot(page, config) {
           ].filter(Boolean),
         };
   }
-  const leftRegion = sectionEvidenceRegion(page, detailLine, incomeSubtotal, 0, splitX);
-  const rightRegion = sectionEvidenceRegion(page, detailLine, expensesSubtotal, splitX, page.width);
+  const leftRegion = expandEvidenceRegion(sectionEvidenceRegion(page, detailLine, incomeSubtotal, 0, splitX), [fields.income, fields.refund], page);
+  const rightRegion = expandEvidenceRegion(
+    sectionEvidenceRegion(page, detailLine, expensesSubtotal, splitX, page.width),
+    [fields.selling_fee_refund, fields.fba_transaction_fee_refund, fields.advertising, fields.commission_service_fee],
+    page,
+  );
   for (const name of ["income", "refund"]) fields[name].evidenceRegion = leftRegion;
   for (const name of ["selling_fee_refund", "fba_transaction_fee_refund", "advertising", "commission_service_fee"]) fields[name].evidenceRegion = rightRegion;
   const summaryIncome = summaryAmount(fullLines, config.aliases.income_section, detailLine.top, page.width, config);

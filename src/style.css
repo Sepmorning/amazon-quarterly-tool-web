@@ -129,8 +129,8 @@ button:disabled { cursor: not-allowed !important; opacity: .43; transform: none 
 .mark-key { display: inline-flex; align-items: center; gap: 5px; color: #526b91; }
 .mark-key i { width: 9px; height: 9px; border: 2px solid #2563eb; border-radius: 2px; background: rgba(37,99,235,.14); }
 .mark-key.muted { color: #9a6a3c; }
-.canvas-stage { height: clamp(230px, 34vh, 390px); padding: 18px; display: grid; place-items: center; overflow: hidden; background: #edf3fb; }
-.canvas-stage canvas { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; border: 1px solid #d8e2ef; border-radius: 5px; background: white; box-shadow: 0 8px 26px rgba(18,44,52,.12); }
+.canvas-stage { height: clamp(300px, 42vh, 470px); min-height: 0; padding: 18px; display: grid; place-items: center; overflow: hidden; background: #edf3fb; }
+.canvas-stage canvas { display: block; width: auto; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; object-fit: contain; border: 1px solid #d8e2ef; border-radius: 5px; background: white; box-shadow: 0 8px 26px rgba(18,44,52,.12); }
 .evidence-placeholder { display: grid; justify-items: center; gap: 7px; color: #91a1a3; text-align: center; }
 .evidence-placeholder .icon { width: 34px; height: 34px; margin-bottom: 4px; }
 .evidence-placeholder b { color: #62777b; font-size: 13px; }
