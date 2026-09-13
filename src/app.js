@@ -166,7 +166,7 @@ function reviewView() {
   const evidencePage = field.evidenceRegion?.pageIndex ?? field.sourceBbox?.pageIndex;
   const evidenceMarkCount = field.evidenceMarks?.length || 0;
   const evidenceGuide = evidenceMarkCount
-    ? `<span class="mark-key"><i></i>${fieldName === "commission_service_fee" ? "蓝框已标出广告与 Expenses 小计" : "蓝框为当前数据"}</span>`
+    ? `<span class="mark-key"><i></i>${fieldName === "commission_service_fee" ? "蓝线连接广告与 Expenses 小计" : "蓝线连接字段与当前数据"}</span>`
     : `<span class="mark-key muted">显示所属区域，请人工定位</span>`;
   const countries = state.session.countries.map((item) => {
     const [label, tone] = statusForCountry(item);

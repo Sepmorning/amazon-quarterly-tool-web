@@ -184,7 +184,7 @@ function fieldFromAmount(name, value, line, message = "", amountWord = null) {
     rawText: line.text,
     message,
     sourceBbox: line.bbox,
-    evidenceMarks: amountBbox ? [{ bbox: amountBbox, label: "当前数据" }] : [],
+    evidenceMarks: amountBbox ? [{ bbox: amountBbox, rowBbox: line.bbox, label: "当前数据" }] : [],
   };
 }
 
@@ -281,8 +281,8 @@ export function extractPageSnapshot(page, config) {
           ...fieldFromAmount("commission_service_fee", value, expensesSubtotal, "ABS(Expenses subtotal Debits) - Advertising"),
           sourceBbox: unionBbox(ad.sourceBbox, expensesSubtotal?.bbox),
           evidenceMarks: [
-            expensesDebitMatch?.[0] ? { bbox: wordBbox(expensesDebitMatch[0], page.pageIndex), label: "Expenses 小计" } : null,
-            ad.evidenceMarks?.[0] ? { bbox: ad.evidenceMarks[0].bbox, label: "广告" } : null,
+            expensesDebitMatch?.[0] ? { bbox: wordBbox(expensesDebitMatch[0], page.pageIndex), rowBbox: expensesSubtotal?.bbox, label: "Expenses 小计" } : null,
+            ad.evidenceMarks?.[0] ? { bbox: ad.evidenceMarks[0].bbox, rowBbox: ad.evidenceMarks[0].rowBbox, label: "广告" } : null,
           ].filter(Boolean),
         };
   }
@@ -463,7 +463,18 @@ function drawEvidenceMark(context, mark, region, scale) {
   const bottom = Math.min(context.canvas.height - 1, (mark.bbox.bottom - region.top) * scale + padding);
   const width = Math.max(1, right - x);
   const height = Math.max(1, bottom - y);
+  const row = mark.rowBbox || mark.bbox;
+  const lineStart = Math.max(1, (row.x0 - region.x0) * scale - padding);
   context.save();
+  context.strokeStyle = "rgba(37, 99, 235, 0.92)";
+  context.lineWidth = Math.max(2.5, 1.35 * scale);
+  context.lineCap = "round";
+  context.shadowColor = "rgba(37, 99, 235, 0.3)";
+  context.shadowBlur = 3 * scale;
+  context.beginPath();
+  context.moveTo(lineStart, bottom);
+  context.lineTo(right, bottom);
+  context.stroke();
   context.fillStyle = "rgba(37, 99, 235, 0.12)";
   context.fillRect(x, y, width, height);
   context.strokeStyle = "#2563eb";

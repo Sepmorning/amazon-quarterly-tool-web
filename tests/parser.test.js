@@ -39,7 +39,9 @@ test("从双栏明细快照提取六个字段并计算佣金服务费", () => {
   assert.equal(result.fields.advertising.evidenceRegion.x1, 800);
   assert.deepEqual(result.fields.income.evidenceMarks.map((mark) => mark.bbox.x0), [340]);
   assert.deepEqual(result.fields.advertising.evidenceMarks.map((mark) => mark.bbox.x0), [610]);
+  assert.equal(result.fields.advertising.evidenceMarks[0].rowBbox.x0, result.fields.advertising.sourceBbox.x0);
   assert.deepEqual(result.fields.commission_service_fee.evidenceMarks.map((mark) => mark.label), ["Expenses 小计", "广告"]);
+  assert.ok(result.fields.commission_service_fee.evidenceMarks.every((mark) => mark.rowBbox));
   for (const field of Object.values(result.fields)) {
     for (const mark of field.evidenceMarks || []) {
       assert.ok(mark.bbox.top >= field.evidenceRegion.top);
