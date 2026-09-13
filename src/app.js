@@ -1,6 +1,7 @@
 import "./style.css";
 import { FIELD_LABELS, TARGET_FIELDS } from "./config.js";
 import { analyzeWorkbook, createSummaryWorkbook, writeWorkbook } from "./excel.js";
+import { droppedFiles } from "./file-drop.js";
 import { extractPdf, renderEvidence, renderFullReport } from "./parser.js";
 import {
   DECISIONS,
@@ -281,24 +282,6 @@ function restoreCountryListScroll(countryChanged) {
   });
 }
 
-async function filesFromEntry(entry) {
-  if (entry.isFile) return new Promise((resolve) => entry.file((file) => resolve([file]), () => resolve([])));
-  if (!entry.isDirectory) return [];
-  const reader = entry.createReader();
-  const children = [];
-  while (true) {
-    const batch = await new Promise((resolve) => reader.readEntries(resolve));
-    if (!batch.length) break;
-    children.push(...batch);
-  }
-  return (await Promise.all(children.map(filesFromEntry))).flat();
-}
-
-async function droppedFiles(dataTransfer) {
-  const entries = [...dataTransfer.items].map((item) => item.webkitGetAsEntry?.()).filter(Boolean);
-  return entries.length ? (await Promise.all(entries.map(filesFromEntry))).flat() : [...dataTransfer.files];
-}
-
 function setPdfFiles(files) {
   state.pdfFiles = [...files].filter((file) => file.name.toLowerCase().endsWith(".pdf")).sort((a, b) => a.name.localeCompare(b.name));
   if (!state.pdfFiles.length) toast("没有找到 PDF 文件", "error");
@@ -315,9 +298,28 @@ function setWorkbook(files) {
 function bindDropZone(id, kind) {
   const zone = document.querySelector(`#${id}`);
   if (!zone) return;
-  for (const eventName of ["dragenter", "dragover"]) zone.addEventListener(eventName, (event) => { event.preventDefault(); zone.classList.add("dragging"); });
-  for (const eventName of ["dragleave", "drop"]) zone.addEventListener(eventName, (event) => { event.preventDefault(); zone.classList.remove("dragging"); });
-  zone.addEventListener("drop", async (event) => kind === "pdf" ? setPdfFiles(await droppedFiles(event.dataTransfer)) : setWorkbook(await droppedFiles(event.dataTransfer)));
+  for (const eventName of ["dragenter", "dragover"]) zone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    zone.classList.add("dragging");
+  });
+  zone.addEventListener("dragleave", (event) => {
+    event.preventDefault();
+    zone.classList.remove("dragging");
+  });
+  zone.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    zone.classList.remove("dragging");
+    try {
+      const files = await droppedFiles(event.dataTransfer);
+      if (kind === "pdf") setPdfFiles(files);
+      else setWorkbook(files);
+    } catch (error) {
+      toast(`读取拖入内容失败：${error.message}`, "error");
+    }
+  });
   zone.addEventListener("keydown", (event) => { if (["Enter", " "].includes(event.key)) document.querySelector(`#${kind}Input`)?.click(); });
 }
 
